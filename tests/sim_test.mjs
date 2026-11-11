@@ -11,7 +11,7 @@ import { execFileSync } from 'child_process';
 import { fileURLToPath } from 'url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const WASM = process.argv[2] || path.join(ROOT, 'docs/sim/obervave.wasm');
+const WASM = process.argv[2] || path.join(ROOT, 'docs/sim/s1vave.wasm');
 let fail = 0;
 const check = (ok, what) => { console.log((ok ? '  ok    ' : '  FAIL  ') + what); if (!ok) fail = 1; };
 
@@ -109,7 +109,8 @@ check(ex.sim_leds_buttons() !== 0, `button LEDs (0x${ex.sim_leds_buttons().toStr
 // storage: SAVE twice keeps the program in the settings sector (written ~2 s later, when quiet); a new instance with
 // those bytes boots on it
 {
-  check(ex.sim_blob_size() === 4088 && ex.sim_blob(0) !== 0 && ex.sim_blob(9) === 0, 'storage blobs exported');
+  const NB = ex.sim_blob_count ? ex.sim_blob_count() : 9;   // settings + the pattern banks (S1Vave-Banks: 33)
+  check(ex.sim_blob_size() === 4088 && ex.sim_blob(0) !== 0 && ex.sim_blob(NB - 1) !== 0 && ex.sim_blob(NB) === 0, 'storage blobs exported');
   const h0 = ex.sim_store_hash(), tap = (b) => { ex.sim_button(b, 1); for (let i = 0; i < 20; i++) ex.sim_render(128); ex.sim_button(b, 0); for (let i = 0; i < 20; i++) ex.sim_render(128); };
   tap(8);                                               // HOME: PERFORM
   ex.sim_enc(2, 7);                                     // KNOB 1 (CUTOFF) +7: the program is edited
@@ -119,7 +120,7 @@ check(ex.sim_leds_buttons() !== 0, `button LEDs (0x${ex.sim_leds_buttons().toStr
   const h1 = ex.sim_store_hash(), size = ex.sim_blob_size(), prog = ex.sim_prog();
   check(h1 !== h0, 'SAVE twice -> the settings sector changes');
   const ex2 = (await WebAssembly.instantiate(fs.readFileSync(WASM), {})).instance.exports;
-  for (let i = 0; i < 9; i++) new Uint8Array(ex2.memory.buffer, ex2.sim_blob(i), size).set(new Uint8Array(ex.memory.buffer, ex.sim_blob(i), size));
+  for (let i = 0; i < NB; i++) new Uint8Array(ex2.memory.buffer, ex2.sim_blob(i), size).set(new Uint8Array(ex.memory.buffer, ex.sim_blob(i), size));
   ex2.sim_init(44100);
   for (let i = 0; i < 44100 * 3 / 128; i++) ex2.sim_render(128);
   check(ex2.sim_prog() === prog && ex2.sim_store_hash() === h1, `a new instance with the saved bytes boots on program ${String(prog + 1).padStart(2, '0')}`);
@@ -133,12 +134,13 @@ check(ex.sim_leds_buttons() !== 0, `button LEDs (0x${ex.sim_leds_buttons().toStr
   let Proc = null;
   const ctx = {
     AudioWorkletProcessor: class { constructor() { this.port = { postMessage: (m) => posted.push(m), onmessage: null }; } },
-    registerProcessor: (name, c) => { if (name === 'obervave') Proc = c; },
+    registerProcessor: (name, c) => { if (name === 's1vave' || name === 'obervave') Proc = c; },
     currentTime: 0, WebAssembly, Float32Array, Uint16Array, Uint8Array, Error, String,
   };
   vm.runInNewContext(fs.readFileSync(path.join(path.dirname(WASM), 'worklet.js'), 'utf8'), ctx);
-  const size = ex.sim_blob_size(), store = new Uint8Array(9 * size);
-  for (let i = 0; i < 9; i++) store.set(new Uint8Array(ex.memory.buffer, ex.sim_blob(i), size), i * size);
+  const NB = ex.sim_blob_count ? ex.sim_blob_count() : 9;
+  const size = ex.sim_blob_size(), store = new Uint8Array(NB * size);
+  for (let i = 0; i < NB; i++) store.set(new Uint8Array(ex.memory.buffer, ex.sim_blob(i), size), i * size);
   const w = new Proc({ processorOptions: { wasm: fs.readFileSync(WASM), store: store.buffer, master: 900 } });
   const out = [[new Float32Array(128), new Float32Array(128)]];
   let e2 = 0, frames = 0;

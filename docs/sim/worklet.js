@@ -17,9 +17,10 @@ class S1Vave extends AudioWorkletProcessor {
       const mod = new WebAssembly.Module(o.wasm);
       this.ex = new WebAssembly.Instance(mod, {}).exports;
       const ex = this.ex, size = ex.sim_blob_size();
-      if (o.store && o.store.byteLength === 9 * size) {     // the saved programs, settings and patterns, before boot
-        const src = new Uint8Array(o.store);
-        for (let i = 0; i < 9; i++) new Uint8Array(ex.memory.buffer, ex.sim_blob(i), size).set(src.subarray(i * size, (i + 1) * size));
+      const count = ex.sim_blob_count ? ex.sim_blob_count() : 9;   // settings + the patterns (banks A-D)
+      if (o.store && o.store.byteLength % size === 0) {     // the saved programs, settings and patterns, before boot
+        const src = new Uint8Array(o.store), n = Math.min(count, o.store.byteLength / size);   // (an older store: bank A)
+        for (let i = 0; i < n; i++) new Uint8Array(ex.memory.buffer, ex.sim_blob(i), size).set(src.subarray(i * size, (i + 1) * size));
       }
       if (ex.sim_init(44100) !== 0) throw new Error('sim_init failed');
       if (o.master !== undefined) ex.sim_master(o.master);
@@ -54,8 +55,9 @@ class S1Vave extends AudioWorkletProcessor {
     const ex = this.ex, h = ex.sim_store_hash();
     if (h === this.storeHash) return;
     this.storeHash = h;
-    const size = ex.sim_blob_size(), all = new Uint8Array(9 * size);
-    for (let i = 0; i < 9; i++) all.set(new Uint8Array(ex.memory.buffer, ex.sim_blob(i), size), i * size);
+    const count = ex.sim_blob_count ? ex.sim_blob_count() : 9;
+    const size = ex.sim_blob_size(), all = new Uint8Array(count * size);
+    for (let i = 0; i < count; i++) all.set(new Uint8Array(ex.memory.buffer, ex.sim_blob(i), size), i * size);
     this.port.postMessage({ t: 'store', data: all.buffer }, [all.buffer]);
   }
   process(inputs, outputs) {

@@ -4,7 +4,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>S1VAVE Simulator · 8-Voice Tweak Synth on M-VAVE FM-1</title>
+<title>S1Vave-Banks Simulator</title>
 <meta name="description" content="S1VAVE, an 8-voice virtual analog tweak synth clone firmware for the M-VAVE FM-1 hardware, running in your browser: the firmware's own C code compiled to WebAssembly by Andrew GG.">
 <link rel="icon" href="logo.png">
 <link rel="stylesheet" href="sim.css">
@@ -15,9 +15,8 @@
   <p class="tag">The FM-1 firmware in your browser: the same C code that runs on the device, compiled to WebAssembly.
     Screen, sound, panel, all of it is the firmware's.</p>
   <nav class="links">
-    <a class="cta" href="/editor/">Hardware Controller &amp; Monitor &rarr;</a>
-    <a href="https://thefirmwarehub.com/#fw-s1vave">Install on your FM-1 &rarr;</a>
-    <a href="https://github.com/andrewgg/s1vave" target="_blank" rel="noopener">Source code</a>
+    <a href="https://github.com/mreyes-analytics/S1Vave-Banks" target="_blank" rel="noopener">S1Vave-Banks source</a>
+    <a href="https://github.com/AndrewGG88/S1Vave" target="_blank" rel="noopener">Original S1Vave</a>
   </nav>
 </header>
 
@@ -70,6 +69,21 @@
   </section>
 
   <section class="info">
+    <div class="box">
+      <h2>S1Vave-Banks: bancos y variaciones</h2>
+      <ul>
+        <li><b>Mantener SAVE</b> (tecla <kbd>]</kbd>) + teclas blancas:
+          <b>1&ndash;8</b> patr&oacute;n (<kbd>Q</kbd> <kbd>W</kbd> <kbd>E</kbd> <kbd>R</kbd> <kbd>Z</kbd> <kbd>X</kbd> <kbd>C</kbd> <kbd>V</kbd>),
+          <b>9&ndash;12</b> banco A&ndash;D (<kbd>B</kbd> <kbd>N</kbd> <kbd>M</kbd> <kbd>,</kbd>),
+          <b>13&ndash;16</b> variaci&oacute;n 1&ndash;4 (<kbd>.</kbd> <kbd>/</kbd> <kbd>I</kbd> <kbd>O</kbd>).</li>
+        <li><b>SEQ</b> (<kbd>0</kbd>) tocado varias veces hasta <b>LOOP</b> (la &uacute;ltima vista):
+          ALGORITHM = track A/B, KNOB 3 = variaci&oacute;n que editas, KNOB 1/2 = inicio/fin, KNOB 4 = mandarla a sonar.</li>
+        <li><b>Espacio</b> = PLAY/STOP. Con PLAY, el patr&oacute;n y la variaci&oacute;n cambian al terminar la vuelta.</li>
+        <li>Para probar: en <b>TRACKS</b> sube LENGTH (KNOB 1) a 64, mete notas en distintas p&aacute;ginas (Hold SEQ + blancas; OCT &minus;/+ cambia de p&aacute;gina) y alterna variaciones.</li>
+      </ul>
+      <p class="hint">Lo que guardes se queda en este navegador.</p>
+    </div>
+
     <div class="box">
       <h2>How to play</h2>
       <ul>
