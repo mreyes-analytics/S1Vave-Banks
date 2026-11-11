@@ -13,7 +13,7 @@ Every aspect—from the classic oscillator core and sub-oscillator waveshapes, t
 
 ---
 
-> **S1Vave-Banks fork:** 4 pattern banks (A–D, 32 patterns) and 4 variations per pattern (own start/end each).
+> **S1Vave-Banks fork:** 4 pattern banks (A–D, 32 patterns) and 4 paired variations per pattern (own start/end for track A and B).
 > Hold SAVE + white keys 9–12 = bank, 13–16 = variation; SEQ → LOOP view. See [docs/BANKS.md](docs/BANKS.md).
 
 ## Highlights & Features

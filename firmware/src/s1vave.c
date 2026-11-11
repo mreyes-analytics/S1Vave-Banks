@@ -79,7 +79,7 @@ static uint32_t seq_view, slot_sel, pat_used, pat_next, arm_k, arm_t, entry_n, p
 static uint8_t entry_on_note[128];              /* the keys writing into the cursor step now */
 static uint16_t slot_len[NPAT][2];              /* the saved patterns' track lengths (the PATTERNS view) */
 static uint32_t bank_sel;                       /* S1Vave-Banks: the bank SAVE held + white 1-8 / black 1-8 work in */
-static uint32_t loop_trk;                       /* the track chosen before the LOOP view (it shows track A) */
+static uint32_t var_ed;                         /* the variation the LOOP view edits (K3), not the one playing */
 static uint32_t pat_queue, copy_to, copy_arm, copy_arm_t;   /* pat_queue: the next pattern + 1 (playing: at A's loop end) */
 enum { CLICK_OFF, CLICK_REC, CLICK_ON, CLICK_COUNT, NCLICK };   /* COUNT: as REC, and REC armed + PLAY counts in a bar */
 static const char *const CLICK_NAME[NCLICK] = {"OFF", "REC", "ON", "COUNT-IN"};
@@ -1160,8 +1160,8 @@ static void var_go(uint32_t v)
         uint32_t lo, hi;
         ctl_var_swap = 0;
         pat.var_cur = (uint8_t)v;
-        pat_var_span(&pat, v, pat.trk[0].len, &lo, &hi);
-        if (pat.trk[0].len) seq_cursor_set(0, lo);
+        pat_var_span(&pat, seq_trk, v, pat.trk[seq_trk].len, &lo, &hi);
+        if (pat.trk[seq_trk].len) seq_cursor_set(seq_trk, lo);
     } else if (v == pat.var_cur && !ctl_var_swap) { say("STAYS"); return; }
     else if (v == pat.var_cur) { ctl_var_swap = 0; scat(msg, " STAYS"); }
     else { ctl_var_next = v; ctl_var_swap = 1; scat(msg, " NEXT"); }
@@ -1203,24 +1203,29 @@ static void seq_view_turn(uint32_t knob, int32_t e)
         else if (knob == 3u && e > 0) pat_copy(slot_sel);
         return;
     }
-    if (seq_view == SV_LOOP) {                  /* S1Vave-Banks: START, END of the variation playing; VAR */
-        uint32_t v = pat.var_cur % NVAR, la = pat.trk[0].len, lo, hi;
+    if (seq_view == SV_LOOP) {                  /* S1Vave-Banks: START, END of variation VAR (K3) on this track; PLAY it */
+        uint32_t v = var_ed % NVAR, lo, hi;
         int32_t x;
-        if (knob == 2u) { var_go((uint32_t)clampi((int32_t)(ctl_var_swap ? ctl_var_next : v) + sg, 0, NVAR - 1)); return; }
-        if (knob > 2u) return;
-        if (!la) { say("A IS OFF: GIVE IT A LENGTH"); return; }
-        pat_var_span(&pat, v, la, &lo, &hi);
+        if (knob == 2u) {                       /* VAR: which one these knobs edit (what plays stays) */
+            var_ed = (uint32_t)clampi((int32_t)v + sg, 0, NVAR - 1);
+            pat_var_span(&pat, t, var_ed, len, &lo, &hi);
+            if (len) seq_cursor_set(t, lo);
+            return;
+        }
+        if (knob == 3u) { if (e > 0) var_go(v); return; }   /* PLAY: this one plays (at the loop's end) */
+        if (!len) { say(t ? "B IS OFF: GIVE IT A LENGTH" : "A IS OFF: GIVE IT A LENGTH"); return; }
+        pat_var_span(&pat, t, v, len, &lo, &hi);
         if (knob == 0u) {                       /* START: up to the END */
             x = clampi((int32_t)lo + e, 0, (int32_t)hi);
-            pat.var_lo[v] = (uint8_t)x;
-            if (pat.var_hi[v] != VAR_FIN) pat.var_hi[v] = (uint8_t)hi;   /* (an end past the track: where it stops now) */
-            seq_cursor_set(0, (uint32_t)x);
-        } else {                                /* END: from the START to A's last step, one more = FIN */
-            int32_t at = pat.var_hi[v] == VAR_FIN ? (int32_t)la : (int32_t)hi;
-            x = clampi(at + e, (int32_t)lo, (int32_t)la);
-            pat.var_lo[v] = (uint8_t)lo;
-            pat.var_hi[v] = x >= (int32_t)la ? (uint8_t)VAR_FIN : (uint8_t)x;
-            seq_cursor_set(0, x >= (int32_t)la ? la - 1u : (uint32_t)x);
+            pat.var_lo[t][v] = (uint8_t)x;
+            if (pat.var_hi[t][v] != VAR_FIN) pat.var_hi[t][v] = (uint8_t)hi;   /* (an end past the track: where it stops now) */
+            seq_cursor_set(t, (uint32_t)x);
+        } else {                                /* END: from the START to the track's last step, one more = FIN */
+            int32_t at = pat.var_hi[t][v] == VAR_FIN ? (int32_t)len : (int32_t)hi;
+            x = clampi(at + e, (int32_t)lo, (int32_t)len);
+            pat.var_lo[t][v] = (uint8_t)lo;
+            pat.var_hi[t][v] = x >= (int32_t)len ? (uint8_t)VAR_FIN : (uint8_t)x;
+            seq_cursor_set(t, x >= (int32_t)len ? len - 1u : (uint32_t)x);
         }
         pat_edited = 1;
         return;
@@ -1289,7 +1294,7 @@ static void seq_view_knob(knob_view_t *k, uint32_t i)
 {
     static const char *const L[NSV][4] = {{"LENGTH", "LEVEL", "CUTOFF", "FX SEND"}, {"STEP", "NOTE", "GATE", "VELO"},
                                           {"STEP", "RATCHET", "CHANCE", "ON/OFF"}, {"LENGTH", "DIV", "SWING", "TRANSP"},
-                                          {"SLOT", "", "GO", "COPY"}, {"START", "END", "VAR", ""}};
+                                          {"SLOT", "", "GO", "COPY"}, {"START", "END", "VAR", "PLAY"}};
     uint32_t t = seq_trk, len = pat.trk[t].len, n;
     seqtrk_t *tk = &pat.trk[t];
     const step_t *st = seq_step(t, len ? seq_cur[t] % len : 0u);
@@ -1298,18 +1303,16 @@ static void seq_view_knob(knob_view_t *k, uint32_t i)
     k->present = k->label[0] != 0;
     k->bip = 0; k->v = 0; k->max = 0;
     if (seq_view == SV_LOOP) {                  /* S1Vave-Banks */
-        uint32_t w = pat.var_cur % NVAR, la = pat.trk[0].len, lo, hi;
-        if (i == 2u) {
-            fmt_u(v, w + 1u);
-            if (ctl_var_swap) { scat(v, ">"); fmt_u(v + slen(v), ctl_var_next % NVAR + 1u); }
-            k->v = (int32_t)w; k->max = NVAR - 1;
+        uint32_t w = var_ed % NVAR, lo, hi;
+        if (i == 2u) { fmt_u(v, w + 1u); k->v = (int32_t)w; k->max = NVAR - 1; return; }
+        if (i == 3u) {
+            scat(v, w == pat.var_cur % NVAR && !ctl_var_swap ? "HERE" : ctl_var_swap && w == ctl_var_next % NVAR ? "NEXT" : "TURN");
             return;
         }
-        if (i > 2u) return;
-        if (!la) { scat(v, "OFF"); return; }
-        pat_var_span(&pat, w, la, &lo, &hi);
-        if (i == 0) { fmt_u(v, lo + 1u); k->v = (int32_t)lo; k->max = (int32_t)la - 1; }
-        else { if (pat.var_hi[w] == VAR_FIN) scat(v, "FIN"); else fmt_u(v, hi + 1u); k->v = (int32_t)hi; k->max = (int32_t)la - 1; }
+        if (!len) { scat(v, "OFF"); return; }
+        pat_var_span(&pat, t, w, len, &lo, &hi);
+        if (i == 0) { fmt_u(v, lo + 1u); k->v = (int32_t)lo; k->max = (int32_t)len - 1; }
+        else { if (pat.var_hi[t][w] == VAR_FIN) scat(v, "FIN"); else fmt_u(v, hi + 1u); k->v = (int32_t)hi; k->max = (int32_t)len - 1; }
         return;
     }
     if (seq_view == SV_SLOTS) {
@@ -1359,11 +1362,11 @@ static void draw_seq_top(void)
     static char mid[16], right[20];
     uint32_t t = seq_trk;
     mid[0] = right[0] = 0;
-    if (!pat_queue || NBANK == 1u) scat(mid, "PAT ");   /* (S1Vave-Banks: "A1*>B2" needs the room) */
+    if (NBANK == 1u) scat(mid, "PAT ");          /* (S1Vave-Banks: "A1" says it; the room goes to the variation) */
     fmt_pat(mid, set.pat);
     if (pat_edited) scat(mid, "*");
     if (pat_queue) { scat(mid, ">"); fmt_pat(mid, pat_queue - 1u); }
-    if (seq_view == SV_LOOP && !pat_queue) {    /* S1Vave-Banks: the variation (room for it on the LOOP view) */
+    if (!pat_queue && seq_view != SV_SLOTS) {   /* S1Vave-Banks: the variation playing (">3": the next) */
         scat(mid, " V"); fmt_u(mid + slen(mid), pat.var_cur % NVAR + 1u);
         if (ctl_var_swap) { scat(mid, ">"); fmt_u(mid + slen(mid), ctl_var_next % NVAR + 1u); }
     }
@@ -1417,14 +1420,14 @@ static void seq_info_line(char *s, uint16_t *c)
     }
     if (layer) { scat(s, "LET GO: BACK"); return; }
     *c = C_CREAM;
-    if (seq_view == SV_LOOP) {                  /* S1Vave-Banks: "VAR 2: 17-32 (16)" */
-        uint32_t w = pat.var_cur % NVAR, la = pat.trk[0].len, lo, hi;
-        if (!la) { *c = C_DIMT; scat(s, "A IS OFF: " NM_K1 " ON TRACK"); return; }
-        pat_var_span(&pat, w, la, &lo, &hi);
-        scat(s, "VAR "); fmt_u(s + slen(s), w + 1u); scat(s, ": ");
+    if (seq_view == SV_LOOP) {                  /* S1Vave-Banks: "EDIT 3 A: 33-48 (16)" */
+        uint32_t w = var_ed % NVAR, lo, hi;
+        if (!len) { *c = C_DIMT; scat(s, t ? "B IS OFF: " NM_K1 " ON TRACK" : "A IS OFF: " NM_K1 " ON TRACK"); return; }
+        pat_var_span(&pat, t, w, len, &lo, &hi);
+        scat(s, "EDIT "); fmt_u(s + slen(s), w + 1u); scat(s, t ? " B: " : " A: ");
         fmt_u(s + slen(s), lo + 1u); scat(s, "-"); fmt_u(s + slen(s), hi + 1u);
         scat(s, " ("); fmt_u(s + slen(s), hi - lo + 1u); scat(s, ")");
-        if (pat.var_lo[w] >= la) { *c = C_DIMT; scat(s, " PAST END"); }
+        if (pat.var_lo[t][w] >= len) { *c = C_DIMT; scat(s, " PAST END"); }
         return;
     }
     if (seq_view == SV_TRACK) {
@@ -1997,16 +2000,14 @@ static void app_main(void)
                     if (!layer_used && fm1_ms - layer_t < 600u) {   /* a tap: the button's pages */
                         if (LL[k] == L_SEQ) {   /* SEQ: the full-screen sequencer; there, its next view (as SLOOP) */
                             static const char *const HINT[NSV] = {NM_ALGO ": A / B", "KEYS WRITE  " NM_K1 " MOVES", "MORE PER STEP", "THE TRACK: LENGTH ..", "THE PATTERNS", "VARIATIONS: START / END"};
-                            if (seq_view == SV_LOOP) seq_trk = loop_trk;   /* (LOOP left: the track chosen before) */
                             if (is_seq_page(page)) seq_view = (seq_view + 1u) % NSV;
                             else { seq_back = page; np = PG_SEQ; seq_view = SV_TRACKS; }
                             if (seq_view == SV_SLOTS) slot_sel = pat_queue ? pat_queue - 1u : set.pat;
-                            if (seq_view == SV_LOOP) {   /* the variations are track A's: A, its cursor at the start */
+                            if (seq_view == SV_LOOP) {   /* the variation playing first; the cursor at its start */
                                 uint32_t lo, hi;
-                                loop_trk = seq_trk;
-                                seq_trk = 0;
-                                pat_var_span(&pat, pat.var_cur, pat.trk[0].len, &lo, &hi);
-                                if (pat.trk[0].len) seq_cursor_set(0, lo);
+                                var_ed = pat.var_cur % NVAR;
+                                pat_var_span(&pat, seq_trk, var_ed, pat.trk[seq_trk].len, &lo, &hi);
+                                if (pat.trk[seq_trk].len) seq_cursor_set(seq_trk, lo);
                             }
                             say(HINT[seq_view]);
                             entry_reset();

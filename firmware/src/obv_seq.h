@@ -33,9 +33,9 @@ typedef struct {
     uint8_t tempo;            /* Pattern tempo (BPM, 40..240) */
     uint8_t pad[4];
     /* S1Vave-Banks: up to here the 2116 bytes of a saved pattern from before; an old one loads into this prefix */
-    uint8_t var_lo[NVAR];     /* each variation's first step (0..255) */
-    uint8_t var_hi[NVAR];     /* its last step, VAR_FIN = the track's last */
-    uint8_t var_cur;          /* the variation track A plays */
+    uint8_t var_lo[2][NVAR];  /* each variation's first step, per track (A, B; 0..255) */
+    uint8_t var_hi[2][NVAR];  /* its last step, VAR_FIN = the track's last */
+    uint8_t var_cur;          /* the variation both tracks play (they change together) */
     uint8_t var_pad[3];
 } pattern_t;
 #define PAT_SIZE_V1 2116u                       /* a pattern saved by S1Vave 1.x (no variations) */
@@ -59,19 +59,23 @@ static volatile uint32_t ctl_var_swap, ctl_var_next, ui_var_swapped;   /* the ne
 /* ISR -> main loop: where each track is (step, and how far into it, Q8) */
 static volatile uint32_t ui_seq_pos[2], ui_seq_frac[2], ui_seq_dur[2], ui_seq_ticks, ui_seq_beat;   /* dur: frames */
 
-/* ---- the variations: 1 = the whole track (as before), 2..4 = steps 17-32, 33-48, 49-64 */
+/* ---- the variations, in pairs: one number for both tracks, each track with its own start..end.
+ * A: 1 = the whole track (as before), 2..4 = steps 17-32, 33-48, 49-64; B: the whole track in all four */
 static void pat_var_init(pattern_t *p)
 {
     uint32_t v;
-    for (v = 0; v < NVAR; v++) { p->var_lo[v] = (uint8_t)(v * 16u); p->var_hi[v] = (uint8_t)(v * 16u + 15u); }
-    p->var_hi[0] = VAR_FIN;
+    for (v = 0; v < NVAR; v++) {
+        p->var_lo[0][v] = (uint8_t)(v * 16u); p->var_hi[0][v] = (uint8_t)(v * 16u + 15u);
+        p->var_lo[1][v] = 0; p->var_hi[1][v] = VAR_FIN;
+    }
+    p->var_hi[0][0] = VAR_FIN;
     p->var_cur = 0;
     p->var_pad[0] = p->var_pad[1] = p->var_pad[2] = 0;
 }
-/* the steps variation v of a track `len` long plays: [*lo, *hi]; one that starts past the end: the whole track */
-static void pat_var_span(const pattern_t *p, uint32_t v, uint32_t len, uint32_t *lo, uint32_t *hi)
+/* the steps track t plays in variation v (the track `len` long): [*lo, *hi]; one that starts past the end: all */
+static void pat_var_span(const pattern_t *p, uint32_t t, uint32_t v, uint32_t len, uint32_t *lo, uint32_t *hi)
 {
-    uint32_t a = p->var_lo[v % NVAR], b = p->var_hi[v % NVAR];
+    uint32_t a = p->var_lo[t & 1u][v % NVAR], b = p->var_hi[t & 1u][v % NVAR];
     if (!len) { *lo = *hi = 0; return; }
     if (b == VAR_FIN || b >= len) b = len - 1u;
     if (a >= len) { a = 0; b = len - 1u; }
@@ -221,9 +225,9 @@ static void seq_tick(void)
         if (r->cnt >= r->dur) {                 /* the next step */
             uint32_t base = q / DIV_PER_QUARTER[k->div % NDIV], sw;
             r->cnt -= r->dur;
-            {                                   /* track A: its variation's start..end; B: the whole track */
-                uint32_t lo = 0, hi = len - 1u;
-                if (t == 0u) pat_var_span(&pat, pat.var_cur, len, &lo, &hi);
+            {                                   /* each track: its start..end in the variation playing */
+                uint32_t lo, hi;
+                pat_var_span(&pat, t, pat.var_cur, len, &lo, &hi);
                 if (r->step >= hi || r->step < lo) {   /* from the top */
                     r->step = lo;
                     if (t == 0u && ctl_pat_swap) {      /* track A from the top: the next pattern */
@@ -235,15 +239,24 @@ static void seq_tick(void)
                         ui_pat_swapped++;
                         len = k->len;
                         if (!len) { seq_release(r); r->tie = 0; continue; }
-                        pat_var_span(&pat, pat.var_cur, len, &lo, &hi);
+                        pat_var_span(&pat, 0, pat.var_cur, len, &lo, &hi);
                         r->step = lo;
                     }
-                    if (t == 0u && ctl_var_swap) {      /* ...or the next variation (SAVE held + white 13-16) */
+                    if (t == 0u && ctl_var_swap) {      /* ...or the next variation (SAVE held + white 13-16), both tracks */
+                        uint32_t lb = pat.trk[1].len, b0, b1, n0, n1;
+                        pat_var_span(&pat, 1, pat.var_cur, lb, &b0, &b1);
                         pat.var_cur = (uint8_t)(ctl_var_next % NVAR);
                         ctl_var_swap = 0;
                         ui_var_swapped++;
-                        pat_var_span(&pat, pat.var_cur, len, &lo, &hi);
+                        pat_var_span(&pat, 0, pat.var_cur, len, &lo, &hi);
                         r->step = lo;
+                        pat_var_span(&pat, 1, pat.var_cur, lb, &n0, &n1);
+                        if (lb && (n0 != b0 || n1 != b1)) {   /* B's part changes: it starts it now, with A */
+                            seq_release(&sr[1]);
+                            sr[1].tie = 0;
+                            sr[1].step = 0xFFFFFFFFu;  /* (its next step, this block: its start) */
+                            sr[1].cnt = sr[1].dur;
+                        }
                     }
                 } else r->step++;
             }

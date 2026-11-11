@@ -1,18 +1,29 @@
-# S1Vave-Banks: variations (LOOP view, SAVE held + white 13-16) and banks (SAVE held + white 9-12)
+# S1Vave-Banks: variations in pairs (A and B change together, each with its own start..end), LOOP view
+# (ALGORITHM: the track, K1 START, K2 END, K3 the variation edited, K4 PLAY it), banks (SAVE held + white 9-12)
 3000 btn 11
 3200 enc 2 3
 3300 enc 2 3
 3400 enc 2 3
-3600 btn 11
+3500 enc 1 1
+3550 enc 2 1
+3560 enc 2 3
+3600 enc 1 -1
 3700 btn 11
 3800 btn 11
 3900 btn 11
-4000 shot
+4000 btn 11
+4050 btn 11
 4100 enc 4 1
+4200 enc 3 -4
 4300 shot
-4400 enc 3 -4
-4600 shot
-4700 btn 12
+4400 enc 1 1
+4500 enc 4 1
+4600 enc 2 8
+4700 shot
+4800 enc 1 -1
+4850 enc 4 -1
+4900 enc 5 1
+5000 btn 12
 6800 btndown 9
 6900 keys 0x1000000
 7000 keys 0
@@ -25,11 +36,6 @@
 9900 keys 0
 9950 shot
 10000 btnup 9
-10100 shot
 12000 btn 12
-12200 btn 11
 12400 shot
-12600 btndown 9
-12700 shot
-12800 btnup 9
 13000 end
