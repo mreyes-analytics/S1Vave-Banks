@@ -405,6 +405,34 @@ static void set_param_in(patch_t *d, uint32_t p, int32_t v)
     }
 }
 static void set_param(uint32_t p, int32_t v) { set_param_in(ed_patch(p), p, v); }
+/* S1Vave-Banks: the CHORD page. The chord is the sound's own (P_CHORD_SW2-4 on/off, P_CHORD_KS2-4 the shift, 12 = 0):
+ * a voice is OFF or -12..+12 semitones over the note played; TYPE sets the three at once */
+#define CHORD_OFF 99
+typedef struct { const char *name; int8_t v[3]; } chord_type_t;
+static const chord_type_t CHORD_TYPE[] = {
+    {"MAJ", {4, 7, 12}}, {"MIN", {3, 7, 12}}, {"SUS4", {5, 7, 12}}, {"7", {4, 7, 10}},
+    {"MIN7", {3, 7, 10}}, {"POWER", {7, 12, -12}}, {"OCT", {12, -12, CHORD_OFF}},
+};
+#define NCHORD_TYPE (sizeof CHORD_TYPE / sizeof CHORD_TYPE[0])
+static int32_t chord_voice(const patch_t *d, uint32_t j)   /* voice j + 2: CHORD_OFF or the shift */
+{
+    return d->v[P_CHORD_SW2 + j] ? (int32_t)d->v[P_CHORD_KS2 + j] - 12 : CHORD_OFF;
+}
+static void chord_voice_set(patch_t *d, uint32_t j, int32_t c)
+{
+    if (c == CHORD_OFF) { set_param_in(d, P_CHORD_SW2 + j, 0); return; }
+    set_param_in(d, P_CHORD_KS2 + j, c + 12);
+    set_param_in(d, P_CHORD_SW2 + j, 1);
+}
+static int32_t chord_type(const patch_t *d)  /* the TYPE the three voices make, -1: CUSTOM */
+{
+    uint32_t n, j;
+    for (n = 0; n < NCHORD_TYPE; n++) {
+        for (j = 0; j < 3u && chord_voice(d, j) == CHORD_TYPE[n].v[j]; j++) ;
+        if (j == 3u) return (int32_t)n;
+    }
+    return -1;
+}
 
 /* REC: a new sound within useful ranges */
 static uint32_t rnd;
@@ -747,6 +775,24 @@ static void draw_page(void)
                 k[i].v = ctl_arp_rate % NARP_RATE;
                 k[i].max = NARP_RATE - 1;
                 scat(k[i].value, ARP_RATE_NAME[ctl_arp_rate % NARP_RATE]);
+            }
+        } else if (page == PG_CHORD && !layer) {   /* S1Vave-Banks: TYPE, V2 V3 V4 (the sound's chord) */
+            const patch_t *d = ed_patch(P_CHORD_KS2);
+            k[i].present = 1;
+            if (i == 0) {
+                int32_t ty = chord_type(d);
+                k[i].label = "TYPE";
+                k[i].v = ty < 0 ? (int32_t)NCHORD_TYPE : ty;
+                k[i].max = NCHORD_TYPE;
+                scat(k[i].value, ty < 0 ? "CUSTOM" : CHORD_TYPE[ty].name);
+            } else {
+                static const char *const LBL[3] = {"V2", "V3", "V4"};
+                int32_t c = chord_voice(d, i - 1u);
+                k[i].label = LBL[i - 1u];
+                k[i].v = c == CHORD_OFF ? 0 : c + 13;
+                k[i].max = 25;
+                if (c == CHORD_OFF) scat(k[i].value, "OFF");
+                else fmt_s(k[i].value, c);
             }
         } else if (page == PG_ARP_CFG && !layer) {
             k[i].present = (i == 0);
@@ -2210,7 +2256,7 @@ static void app_main(void)
             layer = L_NONE; layer_lock = 0; b &= ~((1u << BTN_ENV) | (1u << BTN_LFO) | (1u << BTN_ARP));
             dirty_page = dirty_steps = dirty_tags = 1; leds_q = 0xFFFFFFFFu;
         }
-        if (b & (1u << BTN_SEL) && !layer) np = cycle_page(PG_ADV1, 2);   /* the free button: ADV */
+        if (b & (1u << BTN_SEL) && !layer) np = cycle_page(PG_ADV1, 3);   /* the free button: ADV, ADV FX, CHORD */
         if (b & (1u << BTN_ENV)) np = cycle_page(PG_ADSR, 2);
         if (b & (1u << BTN_LFO)) np = cycle_page(PG_LFO, 3);
         if (b & (1u << BTN_ARP)) {
@@ -2418,6 +2464,20 @@ static void app_main(void)
                     say(ARP_RATE_NAME[ctl_arp_rate]);
                 }
                 dirty_hdr = dirty_tags = 1;
+            } else if (page == PG_CHORD && !layer) {   /* S1Vave-Banks */
+                patch_t *d = ed_patch(P_CHORD_KS2);
+                int32_t sg = e > 0 ? 1 : -1;
+                if (k == 0) {                   /* TYPE: the three voices at once (from CUSTOM: the first / the last) */
+                    int32_t ty = chord_type(d), n;
+                    n = ty < 0 ? (sg > 0 ? 0 : (int32_t)NCHORD_TYPE - 1) : clampi(ty + sg, 0, (int32_t)NCHORD_TYPE - 1);
+                    for (uint32_t j = 0; j < 3u; j++) chord_voice_set(d, j, CHORD_TYPE[n].v[j]);
+                    say(CHORD_TYPE[n].name);
+                } else {                        /* a voice: OFF, -12 .. +12 semitones */
+                    int32_t c = chord_voice(d, k - 1u), x = c == CHORD_OFF ? 0 : c + 13;
+                    x = clampi(x + e, 0, 25);
+                    chord_voice_set(d, k - 1u, x == 0 ? CHORD_OFF : x - 13);
+                }
+                dirty_hdr = dirty_tags = 1;
             } else if (page == PG_ARP_CFG && !layer) {
                 if (k == 0) {
                     ctl_note_pri = clampi((int32_t)ctl_note_pri + e, 0, 1);
@@ -2532,7 +2592,7 @@ static void app_main(void)
         fm1_led_key(BTN_LFO, page == PG_LFO || page == PG_LFO_MOD || page == PG_RISER);
         fm1_led_key(BTN_FX, page == PG_FX_MIX || page == PG_DELAY || page == PG_REVERB);
         fm1_led_key(BTN_GLO, page == PG_VOICE || page == PG_GLOBAL);
-        fm1_led_key(BTN_SEL, page == PG_ADV1 || page == PG_ADV2);
+        fm1_led_key(BTN_SEL, page == PG_ADV1 || page == PG_ADV2 || page == PG_CHORD);
         fm1_led_key(BTN_ARP, ctl_arp_on || (hold >> ed_b() & 1u) || page == PG_ARP || page == PG_ARP_CFG);
         fm1_led_key(BTN_SAVE, save_armed);
 #if BOARD_SMK37

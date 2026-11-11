@@ -6,6 +6,7 @@ Fork de [S1Vave](https://github.com/AndrewGG88/S1Vave) para el M-VAVE FM-1 que a
 - **4 variaciones por patrón, en pares**: cada variación guarda un tramo (inicio/fin) para el **track A** y otro para el **track B**, y los dos cambian juntos.
 - **Cadenas**: de variaciones (se guarda con el patrón) y de patrones (para tocar en vivo).
 - **Modo de voz por variación**: Mono, Unison, Poly o Chord, sin tocar tu sonido.
+- **Página CHORD** (botón SEL): el acorde que toca el modo Chord.
 
 Todo lo demás funciona igual que S1Vave.
 
@@ -63,6 +64,19 @@ Ejemplo, patrón A1 con track A de 64 steps y B de 16:
 | 4 | 49 – 64 | completo |
 
 Defaults: en A, la 1 es todo el track y la 2–4 son 17–32, 33–48 y 49–64; en B las 4 son el track completo. Así, un patrón que no tocas suena igual que antes.
+
+## Página CHORD (presionar SEL hasta llegar a CHORD)
+
+SEL ahora recorre: ADV MIX → ADV FX → **CHORD**.
+
+| Perilla | Hace |
+|---|---|
+| **K1 TYPE** | Tipo de acorde de un golpe: `MAJ`, `MIN`, `SUS4`, `7`, `MIN7`, `POWER`, `OCT` |
+| **K2 / K3 / K4** | Voz 2 / 3 / 4: `OFF` o de −12 a +12 semitonos sobre la nota que tocas |
+
+- Si mueves K2–K4 a mano, TYPE dice `CUSTOM`.
+- El acorde es parte del **sonido**: aplica a todas las variaciones que usen `CHORD`. Para conservarlo, guarda el sonido (SAVE dos veces).
+- Para el Unison: SEL → **ADV MIX**, K1 SPREAD (abre el estéreo) y K2 DETUNE (más gordo).
 
 ## Flujo en vivo
 

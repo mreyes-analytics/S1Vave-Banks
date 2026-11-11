@@ -1,0 +1,11 @@
+# S1Vave-Banks: SEL three times = the CHORD page; TYPE (K1) to MIN, VOICE 4 (K4) down to OFF; the CC out show it
+3000 btn 3
+3200 btn 3
+3400 btn 3
+3600 shot
+3800 enc 2 1
+4000 enc 2 1
+4200 shot
+4400 enc 5 -40
+4600 shot
+5000 end

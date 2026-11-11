@@ -338,6 +338,7 @@ enum {
     /* SEL Button Pages (1..2): the advanced controls */
     PG_ADV1,        /* Spread, Detune, Phaser Mix, FX Mode */
     PG_ADV2,        /* Rate-Reducer Amount, Distortion Amount, -1, -1 */
+    PG_CHORD,       /* S1Vave-Banks: the CHORD voicing's chord: Type, Voice 2-4 shift (drawn by hand) */
     NPAGE
 };
 
@@ -364,6 +365,7 @@ static const page_t PAGE[NPAGE] = {
     [PG_SEQ]        = {"SEQUENCER", {-1, -1, -1, -1}},
     [PG_ADV1]       = {"ADV MIX",   {P_SPREAD, P_DETUNE, P_PHASER_MIX, P_FX_MODE}},
     [PG_ADV2]       = {"ADV FX",    {P_FX_AMT, P_FX_MIX, -1, -1}},
+    [PG_CHORD]      = {"CHORD",     {-1, -1, -1, -1}},
 };
 
 typedef struct { uint8_t v[PATCH_BYTES]; } patch_t;
