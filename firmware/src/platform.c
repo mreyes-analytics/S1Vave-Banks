@@ -127,10 +127,22 @@ static volatile uint32_t fm1_ms;                /* milliseconds since power-on (
 #define NBLOB 8u
 #define PSECT_AT 0x00097000u                    /* the 99 programs: 2 sectors at the start of Felucca's store (FL_DATA) */
 #define NPSECT 2u
+/* S1Vave-Banks: banks B, C, D = 24 more patterns, right after the programs in Felucca's store (FL_DATA), which
+ * S1Vave leaves unused (bank A stays where the 8 patterns always were, so they are kept) */
+#define BANK_AT 0x00099000u
+#define NBLOB_ALL 32u
 #define FL_RANGE_OK(off, n) (FL_IN(off, n, FL_OTA_LO, FL_OTA_HI) || FL_IN(off, n, SETTINGS_AT, SETTINGS_AT + 0x1000u) || \
-                             FL_IN(off, n, BLOBS_AT, BLOBS_AT + NBLOB * 0x1000u) || FL_IN(off, n, PSECT_AT, PSECT_AT + NPSECT * 0x1000u))
+                             FL_IN(off, n, BLOBS_AT, BLOBS_AT + NBLOB * 0x1000u) || FL_IN(off, n, PSECT_AT, PSECT_AT + NPSECT * 0x1000u) || \
+                             FL_IN(off, n, BANK_AT, BANK_AT + (NBLOB_ALL - NBLOB) * 0x1000u))
+#endif
+#ifndef NBLOB_ALL
+#define NBLOB_ALL NBLOB                         /* (the SMK-37 layout: one bank) */
 #endif
 #include "fm1_flash.h"
+#ifdef BANK_AT
+_Static_assert(BANK_AT >= PSECT_AT + NPSECT * 0x1000u && BANK_AT % 0x1000u == 0u, "banks: after the programs");
+_Static_assert(BANK_AT + (NBLOB_ALL - NBLOB) * 0x1000u <= FL_DATA_HI, "banks: inside FL_DATA");
+#endif
 static uint8_t flash_ok;
 static int st_read(uint32_t off, void *dst, uint32_t n)
 {
@@ -241,8 +253,16 @@ static int sector_save(uint32_t at, const void *p, uint32_t n)   /* p in RAM, n 
 static int settings_load(void *p, uint32_t n) { return sector_load(SETTINGS_AT, p, n); }
 static int settings_save(const void *p, uint32_t n) { return sector_save(SETTINGS_AT, p, n); }
 /* blob i (0..NBLOB-1): one more sector each, the same format (S1Vave: a sequencer pattern) */
-static int blob_load(uint32_t i, void *p, uint32_t n) { return i < NBLOB ? sector_load(BLOBS_AT + i * 0x1000u, p, n) : -1; }
-static int blob_save(uint32_t i, const void *p, uint32_t n) { return i < NBLOB ? sector_save(BLOBS_AT + i * 0x1000u, p, n) : -1; }
+/* S1Vave-Banks: blobs 0..7 where they always were, 8..NBLOB_ALL-1 (banks B-D) at BANK_AT */
+static uint32_t blob_at(uint32_t i)
+{
+#ifdef BANK_AT
+    if (i >= NBLOB) return BANK_AT + (i - NBLOB) * 0x1000u;
+#endif
+    return BLOBS_AT + i * 0x1000u;
+}
+static int blob_load(uint32_t i, void *p, uint32_t n) { return i < NBLOB_ALL ? sector_load(blob_at(i), p, n) : -1; }
+static int blob_save(uint32_t i, const void *p, uint32_t n) { return i < NBLOB_ALL ? sector_save(blob_at(i), p, n) : -1; }
 /* program sector i (0..NPSECT-1): the same format (S1Vave: 50 user programs each) */
 static int psect_load(uint32_t i, void *p, uint32_t n) { return i < NPSECT ? sector_load(PSECT_AT + i * 0x1000u, p, n) : -1; }
 static int psect_save(uint32_t i, const void *p, uint32_t n)

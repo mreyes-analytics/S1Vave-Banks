@@ -1,0 +1,35 @@
+# S1Vave-Banks: variations (LOOP view, SAVE held + white 13-16) and banks (SAVE held + white 9-12)
+3000 btn 11
+3200 enc 2 3
+3300 enc 2 3
+3400 enc 2 3
+3600 btn 11
+3700 btn 11
+3800 btn 11
+3900 btn 11
+4000 shot
+4100 enc 4 1
+4300 shot
+4400 enc 3 -4
+4600 shot
+4700 btn 12
+6800 btndown 9
+6900 keys 0x1000000
+7000 keys 0
+7100 btnup 9
+7200 shot
+9500 btndown 9
+9600 keys 0x10000
+9700 keys 0
+9800 keys 0x10
+9900 keys 0
+9950 shot
+10000 btnup 9
+10100 shot
+12000 btn 12
+12200 btn 11
+12400 shot
+12600 btndown 9
+12700 shot
+12800 btnup 9
+13000 end

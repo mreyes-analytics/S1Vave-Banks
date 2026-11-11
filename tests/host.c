@@ -131,16 +131,21 @@ static int settings_save(const void *p, uint32_t n)
     return 0;
 }
 #define NBLOB 8u
-static uint8_t host_blob[NBLOB][SETTINGS_MAX + 4];
+#if defined(BOARD_SMK37) && BOARD_SMK37
+#define NBLOB_ALL NBLOB
+#else
+#define NBLOB_ALL 32u                           /* S1Vave-Banks: banks A-D */
+#endif
+static uint8_t host_blob[NBLOB_ALL][SETTINGS_MAX + 4];
 static int blob_load(uint32_t i, void *p, uint32_t n)
 {
-    if (i >= NBLOB || host_blob[i][0] != 1 || n > SETTINGS_MAX) return -1;
+    if (i >= NBLOB_ALL || host_blob[i][0] != 1 || n > SETTINGS_MAX) return -1;
     memcpy(p, host_blob[i] + 4, n);
     return 0;
 }
 static int blob_save(uint32_t i, const void *p, uint32_t n)
 {
-    if (i >= NBLOB || n > SETTINGS_MAX) return -1;
+    if (i >= NBLOB_ALL || n > SETTINGS_MAX) return -1;
     host_blob[i][0] = 1;
     memcpy(host_blob[i] + 4, p, n);
     printf("%6u ms  blob %u saved (%u B)\n", fm1_ms, i, n);

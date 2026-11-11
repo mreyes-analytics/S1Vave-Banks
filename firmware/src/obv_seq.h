@@ -9,7 +9,11 @@
 #define SEQ_STEPS 256u
 #define SEQ_CHORD 4u
 #define GATE_TIE 127u                           /* a gate of 127: the notes hold into the next step */
-#define NPAT NBLOB                              /* patterns, one flash sector each */
+#define NPAT NBLOB_ALL                          /* patterns, one flash sector each (S1Vave-Banks: 8 per bank) */
+#define NPAT_BANK 8u                            /* patterns per bank: SAVE held + white keys 1-8 */
+#define NBANK (NPAT / NPAT_BANK)                /* banks A, B, C, D (SAVE held + white keys 9-12) */
+#define NVAR 4u                                 /* variations per pattern: track A plays one start..end part */
+#define VAR_FIN 255u                            /* a variation's end: "FIN", track A's last step */
 #define PAT_MAGIC 0x31535653u                   /* "SVS1" */
 
 typedef struct { uint8_t note[SEQ_CHORD], vel, gate, ratch, chance; } step_t;   /* note 0 = none; ratch 0..3 = 1..4 hits */
@@ -28,7 +32,15 @@ typedef struct {
     uint8_t step_loop_end;    /* Step loop end index */
     uint8_t tempo;            /* Pattern tempo (BPM, 40..240) */
     uint8_t pad[4];
+    /* S1Vave-Banks: up to here the 2116 bytes of a saved pattern from before; an old one loads into this prefix */
+    uint8_t var_lo[NVAR];     /* each variation's first step (0..255) */
+    uint8_t var_hi[NVAR];     /* its last step, VAR_FIN = the track's last */
+    uint8_t var_cur;          /* the variation track A plays */
+    uint8_t var_pad[3];
 } pattern_t;
+#define PAT_SIZE_V1 2116u                       /* a pattern saved by S1Vave 1.x (no variations) */
+_Static_assert(__builtin_offsetof(pattern_t, var_lo) == PAT_SIZE_V1, "S1Vave-Banks: the old pattern must be the prefix");
+_Static_assert(sizeof(pattern_t) <= SETTINGS_MAX, "a pattern fits its sector");
 
 static pattern_t pat;                           /* the pattern now: the main loop edits, the ISR plays */
 static step_t *seq_step(uint32_t t, uint32_t i) { return &pat.st[t ? SEQ_STEPS - 1u - i : i]; }
@@ -43,8 +55,29 @@ static volatile uint32_t ctl_seq_run, ctl_seq_restart;
  * in when track A starts over (the one it leaves goes to pat_old, so its edits can be saved at the stop) */
 static pattern_t pat_q, pat_old;
 static volatile uint32_t ctl_pat_swap, ctl_pat_keep, ui_pat_swapped;   /* keep: the one left goes to pat_old */
+static volatile uint32_t ctl_var_swap, ctl_var_next, ui_var_swapped;   /* the next variation, at track A's loop end */
 /* ISR -> main loop: where each track is (step, and how far into it, Q8) */
 static volatile uint32_t ui_seq_pos[2], ui_seq_frac[2], ui_seq_dur[2], ui_seq_ticks, ui_seq_beat;   /* dur: frames */
+
+/* ---- the variations: 1 = the whole track (as before), 2..4 = steps 17-32, 33-48, 49-64 */
+static void pat_var_init(pattern_t *p)
+{
+    uint32_t v;
+    for (v = 0; v < NVAR; v++) { p->var_lo[v] = (uint8_t)(v * 16u); p->var_hi[v] = (uint8_t)(v * 16u + 15u); }
+    p->var_hi[0] = VAR_FIN;
+    p->var_cur = 0;
+    p->var_pad[0] = p->var_pad[1] = p->var_pad[2] = 0;
+}
+/* the steps variation v of a track `len` long plays: [*lo, *hi]; one that starts past the end: the whole track */
+static void pat_var_span(const pattern_t *p, uint32_t v, uint32_t len, uint32_t *lo, uint32_t *hi)
+{
+    uint32_t a = p->var_lo[v % NVAR], b = p->var_hi[v % NVAR];
+    if (!len) { *lo = *hi = 0; return; }
+    if (b == VAR_FIN || b >= len) b = len - 1u;
+    if (a >= len) { a = 0; b = len - 1u; }
+    if (a > b) a = b;
+    *lo = a; *hi = b;
+}
 
 /* ---- a fresh pattern */
 static void step_clear(step_t *s)
@@ -78,6 +111,7 @@ static void pat_init(pattern_t *p)
     p->step_loop_start = 0;
     p->step_loop_end = 15;
     p->tempo = 120;
+    pat_var_init(p);
 }
 static void pat_factory(uint32_t n, pattern_t *p)   /* a pattern never saved: empty, track A 16 sixteenths */
 {
@@ -187,15 +221,31 @@ static void seq_tick(void)
         if (r->cnt >= r->dur) {                 /* the next step */
             uint32_t base = q / DIV_PER_QUARTER[k->div % NDIV], sw;
             r->cnt -= r->dur;
-            r->step = r->step + 1u >= len ? 0u : r->step + 1u;
-            if (t == 0u && r->step == 0u && ctl_pat_swap) {   /* track A from the top: the next pattern */
-                if (ctl_pat_keep) pat_old = pat;
-                pat = pat_q;
-                if (ctl_bq_swap) { live_b = live_bq; ctl_bq_swap = 0; }   /* B's sound comes along */
-                ctl_pat_swap = 0;
-                parts_point();
-                ui_pat_swapped++;
-                len = k->len;
+            {                                   /* track A: its variation's start..end; B: the whole track */
+                uint32_t lo = 0, hi = len - 1u;
+                if (t == 0u) pat_var_span(&pat, pat.var_cur, len, &lo, &hi);
+                if (r->step >= hi || r->step < lo) {   /* from the top */
+                    r->step = lo;
+                    if (t == 0u && ctl_pat_swap) {      /* track A from the top: the next pattern */
+                        if (ctl_pat_keep) pat_old = pat;
+                        pat = pat_q;
+                        if (ctl_bq_swap) { live_b = live_bq; ctl_bq_swap = 0; }   /* B's sound comes along */
+                        ctl_pat_swap = 0;
+                        parts_point();
+                        ui_pat_swapped++;
+                        len = k->len;
+                        if (!len) { seq_release(r); r->tie = 0; continue; }
+                        pat_var_span(&pat, pat.var_cur, len, &lo, &hi);
+                        r->step = lo;
+                    }
+                    if (t == 0u && ctl_var_swap) {      /* ...or the next variation (SAVE held + white 13-16) */
+                        pat.var_cur = (uint8_t)(ctl_var_next % NVAR);
+                        ctl_var_swap = 0;
+                        ui_var_swapped++;
+                        pat_var_span(&pat, pat.var_cur, len, &lo, &hi);
+                        r->step = lo;
+                    }
+                } else r->step++;
             }
             sw = base * (uint32_t)(clampi(k->swing, 50, 75) - 50) / 50u;
             r->dur = r->step & 1u ? base - sw : base + sw;   /* swing: the first of each pair longer */

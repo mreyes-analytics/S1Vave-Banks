@@ -13,6 +13,9 @@ Every aspect—from the classic oscillator core and sub-oscillator waveshapes, t
 
 ---
 
+> **S1Vave-Banks fork:** 4 pattern banks (A–D, 32 patterns) and 4 variations per pattern (own start/end each).
+> Hold SAVE + white keys 9–12 = bank, 13–16 = variation; SEQ → LOOP view. See [docs/BANKS.md](docs/BANKS.md).
+
 ## Highlights & Features
 
 ### 1. Classic SH-101 Voice Architecture & Tweak Innovations

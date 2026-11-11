@@ -174,11 +174,12 @@ EXPORT uint32_t sim_prog(void) { return prog; }
 /* ---- storage: the settings sector (programs, globals) and the 8 pattern sectors, in RAM. The page may keep them
  * (localStorage) and put them back before sim_init: blob 0 = settings, 1..8 = patterns 1..8, byte 0 = 1 if used */
 EXPORT uint32_t sim_blob_size(void) { return SETTINGS_MAX + 4u; }
-EXPORT uint8_t *sim_blob(uint32_t i) { return i == 0u ? host_store : i <= NBLOB ? host_blob[i - 1u] : 0; }
+EXPORT uint8_t *sim_blob(uint32_t i) { return i == 0u ? host_store : i <= NBLOB_ALL ? host_blob[i - 1u] : 0; }
+EXPORT uint32_t sim_blob_count(void) { return NBLOB_ALL + 1u; }   /* S1Vave-Banks: settings + all the banks */
 EXPORT uint32_t sim_store_hash(void)            /* changes when a save happens */
 {
     uint32_t h = 2166136261u, i, b;
-    for (b = 0; b <= NBLOB; b++) {
+    for (b = 0; b <= NBLOB_ALL; b++) {
         const uint8_t *p = sim_blob(b);
         for (i = 0; i < SETTINGS_MAX + 4u; i++) h = (h ^ p[i]) * 16777619u;
     }
