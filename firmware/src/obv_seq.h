@@ -14,6 +14,7 @@
 #define NBANK (NPAT / NPAT_BANK)                /* banks A, B, C, D (SAVE held + white keys 9-12) */
 #define NVAR 4u                                 /* variations per pattern: track A plays one start..end part */
 #define VAR_FIN 255u                            /* a variation's end: "FIN", track A's last step */
+#define VCHAIN_MAX 8u                           /* a variation chain: up to 8 (SAVE held + white 13-16, one after another) */
 #define PAT_MAGIC 0x31535653u                   /* "SVS1" */
 
 typedef struct { uint8_t note[SEQ_CHORD], vel, gate, ratch, chance; } step_t;   /* note 0 = none; ratch 0..3 = 1..4 hits */
@@ -37,8 +38,15 @@ typedef struct {
     uint8_t var_hi[2][NVAR];  /* its last step, VAR_FIN = the track's last */
     uint8_t var_cur;          /* the variation both tracks play (they change together) */
     uint8_t var_pad[3];
+    /* S1Vave-Banks 2: up to here the 2136 bytes of a banks-1 pattern */
+    uint8_t var_voice[2][NVAR];   /* each variation's voicing per track: 0 = the sound's own, else Mono..Chord + 1 */
+    uint8_t vchain[VCHAIN_MAX];   /* the variation chain: one loop each, then again from the first */
+    uint8_t vchain_n;             /* its length (0, 1: no chain) */
+    uint8_t vchain_pad[3];
 } pattern_t;
 #define PAT_SIZE_V1 2116u                       /* a pattern saved by S1Vave 1.x (no variations) */
+#define PAT_SIZE_B1 2136u                       /* a pattern saved by S1Vave-Banks 1 (no chain, no voicing) */
+_Static_assert(__builtin_offsetof(pattern_t, var_voice) == PAT_SIZE_B1, "S1Vave-Banks: the banks-1 pattern must be the prefix");
 _Static_assert(__builtin_offsetof(pattern_t, var_lo) == PAT_SIZE_V1, "S1Vave-Banks: the old pattern must be the prefix");
 _Static_assert(sizeof(pattern_t) <= SETTINGS_MAX, "a pattern fits its sector");
 
@@ -56,8 +64,22 @@ static volatile uint32_t ctl_seq_run, ctl_seq_restart;
 static pattern_t pat_q, pat_old;
 static volatile uint32_t ctl_pat_swap, ctl_pat_keep, ui_pat_swapped;   /* keep: the one left goes to pat_old */
 static volatile uint32_t ctl_var_swap, ctl_var_next, ui_var_swapped;   /* the next variation, at track A's loop end */
+/* the variation chain's place (0xFF: before its first; ctl_vchain_restart: from its first at A's next loop end), the
+ * pattern's cycles (a loop of A, or its whole variation chain; the pattern chain moves on them), ctl_pat_cycle: the
+ * pattern waiting in pat_q comes in only at the end of a cycle */
+static volatile uint32_t vchain_pos = 0xFFu, ctl_vchain_restart, ui_cycles, ctl_pat_cycle;
 /* ISR -> main loop: where each track is (step, and how far into it, Q8) */
 static volatile uint32_t ui_seq_pos[2], ui_seq_frac[2], ui_seq_dur[2], ui_seq_ticks, ui_seq_beat;   /* dur: frames */
+
+/* ---- banks 2: the voicing per variation (all "the sound's own") and no variation chain */
+static void pat_v2_init(pattern_t *p)
+{
+    uint32_t i;
+    for (i = 0; i < NVAR; i++) p->var_voice[0][i] = p->var_voice[1][i] = 0;
+    for (i = 0; i < VCHAIN_MAX; i++) p->vchain[i] = 0;
+    p->vchain_n = 0;
+    p->vchain_pad[0] = p->vchain_pad[1] = p->vchain_pad[2] = 0;
+}
 
 /* ---- the variations, in pairs: one number for both tracks, each track with its own start..end.
  * A: 1 = the whole track (as before), 2..4 = steps 17-32, 33-48, 49-64; B: the whole track in all four */
@@ -71,6 +93,7 @@ static void pat_var_init(pattern_t *p)
     p->var_hi[0][0] = VAR_FIN;
     p->var_cur = 0;
     p->var_pad[0] = p->var_pad[1] = p->var_pad[2] = 0;
+    pat_v2_init(p);
 }
 /* the steps track t plays in variation v (the track `len` long): [*lo, *hi]; one that starts past the end: all */
 static void pat_var_span(const pattern_t *p, uint32_t t, uint32_t v, uint32_t len, uint32_t *lo, uint32_t *hi)
@@ -180,9 +203,49 @@ static void seq_tie_into(seqrun_t *r, const step_t *s, int32_t transp, uint32_t 
     }
 }
 
+/* S1Vave-Banks: the variation chain's length (0: none) */
+static uint32_t seq_vchain_n(void)
+{
+    uint32_t n = pat.vchain_n;
+    return n >= 2u ? (n > VCHAIN_MAX ? VCHAIN_MAX : n) : 0u;
+}
+/* the voicing of the variation playing, laid over each part's sound (B on sound A: A's). A change lets go of what
+ * that part holds first, so nothing started in one voicing is let go in another */
+static void seq_vmode_sync(void)
+{
+    uint32_t v = pat.var_cur % NVAR, t, k;
+    for (t = 0; t < 2u; t++) {
+        uint32_t want = t == 0u || b_own ? pat.var_voice[t][v] : 0u;
+        if (want > NPOLY_MODE) want = 0;
+        if (want == vmode_ovr[t]) continue;
+        for (k = 0; k < 2u; k++) if (sr[k].part == t) { seq_release(&sr[k]); sr[k].tie = 0; }
+        voices_release_part(t);
+        vmode_ovr[t] = (uint8_t)want;
+    }
+}
+/* both tracks to variation v (at A's loop end): B starts its new part with A when its range changes */
+static void seq_var_to(uint32_t v)
+{
+    uint32_t lb = pat.trk[1].len, b0, b1, n0, n1;
+    v %= NVAR;
+    if (v == pat.var_cur % NVAR) return;
+    pat_var_span(&pat, 1, pat.var_cur, lb, &b0, &b1);
+    pat.var_cur = (uint8_t)v;
+    ui_var_swapped++;
+    pat_var_span(&pat, 1, v, lb, &n0, &n1);
+    if (lb && (n0 != b0 || n1 != b1)) {         /* (its next step, this block: its start) */
+        seq_release(&sr[1]);
+        sr[1].tie = 0;
+        sr[1].step = 0xFFFFFFFFu;
+        sr[1].cnt = sr[1].dur;
+    }
+    seq_vmode_sync();
+}
+
 static void seq_tick(void)
 {
     uint32_t t, q;
+    seq_vmode_sync();                           /* (the variation's voicing, playing or not) */
     if (!ctl_seq_run) {
         if (seq_was) { seq_release(&sr[0]); seq_release(&sr[1]); seq_was = 0; }
         return;
@@ -197,6 +260,7 @@ static void seq_tick(void)
         }
         seq_beat_cnt = 0;
         seq_beat_n = 0;
+        vchain_pos = 0xFFu;                     /* (the variation chain from its first) */
         count_left = ctl_count ? 4u : 0u;
         seq_was = 1;
     }
@@ -206,6 +270,7 @@ static void seq_tick(void)
             ctl_count = 0;
             seq_beat_n = 0;
             for (t = 0; t < 2u; t++) { sr[t].step = 0xFFFFFFFFu; sr[t].cnt = sr[t].dur = 0; sr[t].play = sr[t].tie = 0; }
+            vchain_pos = 0xFFu;
         }
         ui_seq_beat++;
         if (ctl_click || ctl_count) click_start(seq_beat_n % 4u == 0u);
@@ -229,34 +294,35 @@ static void seq_tick(void)
                 uint32_t lo, hi;
                 pat_var_span(&pat, t, pat.var_cur, len, &lo, &hi);
                 if (r->step >= hi || r->step < lo) {   /* from the top */
+                    uint32_t first = r->step == 0xFFFFFFFFu;   /* (the start: not the end of a loop) */
                     r->step = lo;
-                    if (t == 0u && ctl_pat_swap) {      /* track A from the top: the next pattern */
-                        if (ctl_pat_keep) pat_old = pat;
-                        pat = pat_q;
-                        if (ctl_bq_swap) { live_b = live_bq; ctl_bq_swap = 0; }   /* B's sound comes along */
-                        ctl_pat_swap = 0;
-                        parts_point();
-                        ui_pat_swapped++;
-                        len = k->len;
-                        if (!len) { seq_release(r); r->tie = 0; continue; }
-                        pat_var_span(&pat, 0, pat.var_cur, len, &lo, &hi);
-                        r->step = lo;
-                    }
-                    if (t == 0u && ctl_var_swap) {      /* ...or the next variation (SAVE held + white 13-16), both tracks */
-                        uint32_t lb = pat.trk[1].len, b0, b1, n0, n1;
-                        pat_var_span(&pat, 1, pat.var_cur, lb, &b0, &b1);
-                        pat.var_cur = (uint8_t)(ctl_var_next % NVAR);
-                        ctl_var_swap = 0;
-                        ui_var_swapped++;
-                        pat_var_span(&pat, 0, pat.var_cur, len, &lo, &hi);
-                        r->step = lo;
-                        pat_var_span(&pat, 1, pat.var_cur, lb, &n0, &n1);
-                        if (lb && (n0 != b0 || n1 != b1)) {   /* B's part changes: it starts it now, with A */
-                            seq_release(&sr[1]);
-                            sr[1].tie = 0;
-                            sr[1].step = 0xFFFFFFFFu;  /* (its next step, this block: its start) */
-                            sr[1].cnt = sr[1].dur;
+                    if (t == 0u) {                      /* A from the top: the next pattern, variation, chain step */
+                        uint32_t vn = seq_vchain_n(), cyc = !first && (!vn || vchain_pos + 1u >= vn);
+                        if (cyc) ui_cycles++;           /* (a loop, or the whole variation chain: the pattern chain moves) */
+                        if (ctl_pat_swap && (!ctl_pat_cycle || cyc || first)) {   /* the next pattern */
+                            if (ctl_pat_keep) pat_old = pat;
+                            pat = pat_q;
+                            if (ctl_bq_swap) { live_b = live_bq; ctl_bq_swap = 0; }   /* B's sound comes along */
+                            ctl_pat_swap = 0;
+                            ctl_pat_cycle = 0;
+                            parts_point();
+                            ui_pat_swapped++;
+                            vchain_pos = 0xFFu;         /* (its own chain, from its first) */
+                            vn = seq_vchain_n();
+                            len = k->len;
+                            seq_vmode_sync();
+                            if (!len) { seq_release(r); r->tie = 0; continue; }
                         }
+                        if (ctl_vchain_restart) { ctl_vchain_restart = 0; vchain_pos = 0xFFu; }
+                        if (ctl_var_swap) {             /* the next variation (SAVE held + a white 13-16), both tracks */
+                            ctl_var_swap = 0;
+                            seq_var_to(ctl_var_next);
+                        } else if (vn) {                /* the chain's next (one loop each) */
+                            vchain_pos = vchain_pos >= vn ? 0u : (vchain_pos + 1u) % vn;
+                            seq_var_to(pat.vchain[vchain_pos]);
+                        }
+                        pat_var_span(&pat, 0, pat.var_cur, len, &lo, &hi);
+                        r->step = lo;
                     }
                 } else r->step++;
             }

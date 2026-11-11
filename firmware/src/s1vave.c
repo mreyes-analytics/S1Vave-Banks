@@ -80,6 +80,12 @@ static uint8_t entry_on_note[128];              /* the keys writing into the cur
 static uint16_t slot_len[NPAT][2];              /* the saved patterns' track lengths (the PATTERNS view) */
 static uint32_t bank_sel;                       /* S1Vave-Banks: the bank SAVE held + white 1-8 / black 1-8 work in */
 static uint32_t var_ed;                         /* the variation the LOOP view edits (K3), not the one playing */
+/* the chains: SAVE held, the white keys pressed one after another (rec_*); let go: 2 or more = a chain. The pattern
+ * chain (pch, in RAM only) moves on at the end of each cycle of the pattern playing (ui_cycles) */
+#define PCHAIN_MAX 16u
+static uint8_t rec_p[PCHAIN_MAX], rec_v[VCHAIN_MAX], pch[PCHAIN_MAX];
+static uint32_t rec_pn, rec_vn, pch_n, pch_pos, pch_wait, pch_queued, pch_cycles_seen, pch_run_was;
+static uint32_t pat_q_back;                     /* the pattern waiting is the one left with its edits (pat_old), back */
 static uint32_t pat_queue, copy_to, copy_arm, copy_arm_t;   /* pat_queue: the next pattern + 1 (playing: at A's loop end) */
 enum { CLICK_OFF, CLICK_REC, CLICK_ON, CLICK_COUNT, NCLICK };   /* COUNT: as REC, and REC armed + PLAY counts in a bar */
 static const char *const CLICK_NAME[NCLICK] = {"OFF", "REC", "ON", "COUNT-IN"};
@@ -133,6 +139,7 @@ static void say(const char *s) { toast = s; toast_t = fm1_ms; }
 static int pat_load_blob(uint32_t n, pattern_t *p)
 {
     if (!blob_load(n, p, sizeof *p) && p->magic == PAT_MAGIC) return 0;
+    if (!blob_load(n, p, PAT_SIZE_B1) && p->magic == PAT_MAGIC) { pat_v2_init(p); return 0; }   /* (banks 1) */
     if (!blob_load(n, p, PAT_SIZE_V1) && p->magic == PAT_MAGIC) { pat_var_init(p); return 0; }
     return -1;
 }
@@ -1110,16 +1117,20 @@ static void pat_switch(uint32_t n)
 }
 
 /* as zp12's loops: stopped, at once; playing, from the end of track A's loop (the ISR swaps pat_q in) */
-static void pat_go(uint32_t n)
+static int pat_go_ex(uint32_t n, uint32_t cycle)   /* cycle: at the end of the pattern's cycle (the chain); 0: refused */
 {
     static char msg[20];
     n %= NPAT;
-    if (pat_queue) { ctl_pat_swap = 0; ctl_bq_swap = 0; pat_queue = 0; }
-    if (!ctl_seq_run) { pat_switch(n); return; }
-    if (n == set.pat) { say("STAYS"); return; }
-    if (pend_slot && pat_edited) { say("STOP ONCE: THE LAST ONE SAVES"); return; }
-    ctl_pat_keep = !pend_slot;                  /* (pat_old free: the one left keeps its edits for the stop) */
-    if (pat_load_blob(n, &pat_q)) pat_factory(n, &pat_q);
+    if (!cycle) pch_n = 0;                      /* (a pattern picked by hand: the chain is off) */
+    if (pat_queue) { ctl_pat_swap = 0; ctl_bq_swap = 0; pat_queue = 0; pat_q_back = 0; }
+    ctl_pat_cycle = 0;
+    if (!ctl_seq_run) { pat_switch(n); return 1; }
+    if (n == set.pat) { say("STAYS"); return 1; }
+    if (pend_slot && pat_edited && n + 1u != pend_slot) { say("STOP ONCE: THE LAST ONE SAVES"); return 0; }
+    pat_q_back = n + 1u == pend_slot;           /* S1Vave-Banks: back to the one left with its edits: those, not flash */
+    ctl_pat_keep = !pend_slot || pat_q_back;    /* (pat_old free: the one left keeps its edits for the stop) */
+    if (pat_q_back) pat_q = pat_old;
+    else if (pat_load_blob(n, &pat_q)) pat_factory(n, &pat_q);
     ctl_var_swap = 0;                           /* (a variation waiting: the pattern goes first) */
     if (pat_q.trk[1].B_PROG > NPROG) pat_q.trk[1].B_PROG = 0;
     if (pat_q.trk[1].B_PROG && pat_q.trk[1].B_PROG != pat.trk[1].B_PROG) {   /* B's sound ready to come along */
@@ -1127,9 +1138,21 @@ static void pat_go(uint32_t n)
         ctl_bq_swap = 1;
     }
     pat_queue = n + 1u;
+    ctl_pat_cycle = cycle;
     ctl_pat_swap = 1;
     msg[0] = 0; scat(msg, "PATTERN "); fmt_pat(msg, n); scat(msg, " NEXT");
     say(msg);
+    return 1;
+}
+static void pat_go(uint32_t n) { (void)pat_go_ex(n, 0); }
+
+/* S1Vave-Banks: the pattern chain's next one, waiting for the end of this one's cycle (the same one again: nothing) */
+static void pch_queue_next(void)
+{
+    uint32_t nx = pch[(pch_pos + 1u) % pch_n];
+    pch_queued = 1;
+    if (nx == pch[pch_pos % pch_n] || nx == set.pat) return;
+    if (!pat_go_ex(nx, 1)) { pch_n = 0; say("CHAIN OFF: STOP ONCE TO SAVE"); }
 }
 
 /* SAVE held + a black key: this pattern into slot n (a used one: press again); written when stopped and quiet */
@@ -1166,6 +1189,44 @@ static void var_go(uint32_t v)
     else if (v == pat.var_cur) { ctl_var_swap = 0; scat(msg, " STAYS"); }
     else { ctl_var_next = v; ctl_var_swap = 1; scat(msg, " NEXT"); }
     say(msg);
+}
+
+/* S1Vave-Banks: the chain being pressed, as it grows ("CHAIN A1 A2 B3", "VAR CHAIN 1 1 2 3") */
+static void chain_say(uint32_t vars)
+{
+    static char msg[40];
+    uint32_t i, n = vars ? rec_vn : rec_pn;
+    msg[0] = 0;
+    scat(msg, vars ? "VAR CHAIN" : "CHAIN");
+    for (i = 0; i < n && slen(msg) < 34u; i++) {
+        scat(msg, " ");
+        if (vars) fmt_u(msg + slen(msg), rec_v[i] + 1u); else fmt_pat(msg, rec_p[i]);
+    }
+    say(msg);
+}
+/* SAVE let go: what was pressed one after another becomes the chains (one key: the chain is off) */
+static void save_layer_end(void)
+{
+    uint32_t i;
+    if (rec_vn >= 2u) {                         /* the variation chain: kept with the pattern, from its first */
+        for (i = 0; i < rec_vn; i++) pat.vchain[i] = rec_v[i];
+        pat.vchain_n = (uint8_t)rec_vn;
+        ctl_var_swap = 0;
+        if (ctl_seq_run) ctl_vchain_restart = 1;   /* (at A's loop end) */
+        else var_go(rec_v[0]);
+        pat_edited = 1;
+        chain_say(1);
+    } else if (rec_vn == 1u && pat.vchain_n) { pat.vchain_n = 0; pat_edited = 1; }
+    if (rec_pn >= 2u) {                         /* the pattern chain: the first is on its way (or here) */
+        for (i = 0; i < rec_pn; i++) pch[i] = rec_p[i];
+        pch_n = rec_pn;
+        pch_pos = 0;
+        pch_wait = pat_queue != 0u;
+        pch_queued = 0;
+        pch_cycles_seen = ui_cycles;
+        if (rec_vn < 2u) chain_say(0);
+    } else if (rec_pn == 1u) pch_n = 0;
+    rec_pn = rec_vn = 0;
 }
 
 static void pat_save_to(uint32_t n)             /* the pattern now into slot n (written when stopped and quiet) */
@@ -1212,7 +1273,12 @@ static void seq_view_turn(uint32_t knob, int32_t e)
             if (len) seq_cursor_set(t, lo);
             return;
         }
-        if (knob == 3u) { if (e > 0) var_go(v); return; }   /* PLAY: this one plays (at the loop's end) */
+        if (knob == 3u) {                       /* VOICE: this variation's voicing on this track (SOUND = the sound's own) */
+            if (t && !pat.trk[1].B_PROG) { say("B PLAYS SOUND A: A'S VOICE"); return; }
+            pat.var_voice[t][v] = (uint8_t)clampi((int32_t)pat.var_voice[t][v] + sg, 0, NPOLY_MODE);
+            pat_edited = 1;
+            return;
+        }
         if (!len) { say(t ? "B IS OFF: GIVE IT A LENGTH" : "A IS OFF: GIVE IT A LENGTH"); return; }
         pat_var_span(&pat, t, v, len, &lo, &hi);
         if (knob == 0u) {                       /* START: up to the END */
@@ -1294,7 +1360,7 @@ static void seq_view_knob(knob_view_t *k, uint32_t i)
 {
     static const char *const L[NSV][4] = {{"LENGTH", "LEVEL", "CUTOFF", "FX SEND"}, {"STEP", "NOTE", "GATE", "VELO"},
                                           {"STEP", "RATCHET", "CHANCE", "ON/OFF"}, {"LENGTH", "DIV", "SWING", "TRANSP"},
-                                          {"SLOT", "", "GO", "COPY"}, {"START", "END", "VAR", "PLAY"}};
+                                          {"SLOT", "", "GO", "COPY"}, {"START", "END", "VAR", "VOICE"}};
     uint32_t t = seq_trk, len = pat.trk[t].len, n;
     seqtrk_t *tk = &pat.trk[t];
     const step_t *st = seq_step(t, len ? seq_cur[t] % len : 0u);
@@ -1305,8 +1371,11 @@ static void seq_view_knob(knob_view_t *k, uint32_t i)
     if (seq_view == SV_LOOP) {                  /* S1Vave-Banks */
         uint32_t w = var_ed % NVAR, lo, hi;
         if (i == 2u) { fmt_u(v, w + 1u); k->v = (int32_t)w; k->max = NVAR - 1; return; }
-        if (i == 3u) {
-            scat(v, w == pat.var_cur % NVAR && !ctl_var_swap ? "HERE" : ctl_var_swap && w == ctl_var_next % NVAR ? "NEXT" : "TURN");
+        if (i == 3u) {                          /* VOICE */
+            uint32_t m = pat.var_voice[t][w];
+            if (t && !pat.trk[1].B_PROG) { scat(v, "= A"); return; }
+            scat(v, m && m <= NPOLY_MODE ? POLY_NAME[m - 1u] : "SOUND");
+            k->v = (int32_t)m; k->max = NPOLY_MODE;
             return;
         }
         if (!len) { scat(v, "OFF"); return; }
@@ -1414,7 +1483,12 @@ static void seq_info_line(char *s, uint16_t *c)
     if (layer == L_SEQ) { scat(s, step_held >= 0 ? "KNOBS EDIT THE HELD STEP" : "WHITE KEYS = 16 STEPS"); return; }
     if (layer == L_EDIT) { scat(s, "KEY: ERASE  OCT: UNDO/REDO"); return; }
     if (layer == L_SAVE) {
-        if (NBANK > 1u) { scat(s, "BANK "); fmt_pat(s, bank_sel * NPAT_BANK); s[slen(s) - 1u] = 0; scat(s, "  VAR "); fmt_u(s + slen(s), pat.var_cur % NVAR + 1u); }
+        if (NBANK > 1u) {
+            scat(s, "BANK "); fmt_pat(s, bank_sel * NPAT_BANK); s[slen(s) - 1u] = 0;
+            scat(s, "  VAR "); fmt_u(s + slen(s), pat.var_cur % NVAR + 1u);
+            if (pat.vchain_n >= 2u) scat(s, " VCHAIN");   /* (the chains on: S1Vave-Banks) */
+            if (pch_n) scat(s, " CHAIN");
+        }
         else scat(s, "WHITE 1-8: GO  BLACK: COPY");
         return;
     }
@@ -1589,13 +1663,20 @@ static void keys_in(uint32_t notes_only)
                 layer_used = 1;
                 if (KEY_STEP[k] >= 0 && KEY_STEP[k] < (int32_t)NPAT_BANK) {   /* white 1-8: go there (in the bank); black 1-8: copy there */
                     uint32_t n = bank_sel * NPAT_BANK + (uint32_t)KEY_STEP[k];
-                    if (n != set.pat || pat_queue) pat_go(n);
+                    if (rec_pn < PCHAIN_MAX) rec_p[rec_pn++] = (uint8_t)n;
+                    if (rec_pn >= 2u) chain_say(0);   /* (the 2nd on: a chain, made when SAVE is let go) */
+                    else if (n != set.pat || pat_queue) pat_go(n);
                     else { msg[0] = 0; scat(msg, "PATTERN "); fmt_pat(msg, set.pat); say(msg); }
                 } else if (KEY_STEP[k] >= 8 && KEY_STEP[k] < 12 && NBANK > 1u) {   /* S1Vave-Banks: white 9-12 = bank A-D */
                     bank_sel = (uint32_t)(KEY_STEP[k] - 8) % NBANK;
                     msg[0] = 0; scat(msg, "BANK "); fmt_pat(msg, bank_sel * NPAT_BANK); msg[slen(msg) - 1u] = 0;
                     say(msg);
-                } else if (KEY_STEP[k] >= 12 && KEY_STEP[k] < 16) var_go((uint32_t)(KEY_STEP[k] - 12));   /* white 13-16 = variation 1-4 */
+                } else if (KEY_STEP[k] >= 12 && KEY_STEP[k] < 16) {   /* white 13-16 = variation 1-4; one after another: a chain */
+                    uint32_t v = (uint32_t)(KEY_STEP[k] - 12);
+                    if (rec_vn < VCHAIN_MAX) rec_v[rec_vn++] = (uint8_t)v;
+                    if (rec_vn >= 2u) chain_say(1);
+                    else var_go(v);
+                }
                 else if (KEY_PAGE[k] >= 0) pat_copy(bank_sel * NPAT_BANK + (uint32_t)KEY_PAGE[k]);
             } else {
                 if (page == PG_OSC_DRAW && !layer && KEY_STEP[k] >= 0 && KEY_STEP[k] < 16) {
@@ -1989,8 +2070,8 @@ static void app_main(void)
             static uint32_t dead;               /* a press that only unlocked: its release does nothing */
             for (k = 0; k < 5u; k++) {
                 if (b & (1u << LB[k])) {
-                    if (layer_lock) { layer = L_NONE; layer_lock = 0; dead |= 1u << LB[k]; }
-                    else { layer = LL[k]; layer_used = 0; layer_t = fm1_ms; layer_btn = LB[k]; }
+                    if (layer_lock) { if (layer == L_SAVE) save_layer_end(); layer = L_NONE; layer_lock = 0; dead |= 1u << LB[k]; }
+                    else { layer = LL[k]; layer_used = 0; layer_t = fm1_ms; layer_btn = LB[k]; rec_pn = rec_vn = 0; }
                     step_held = -1; audition_off(); entry_reset();
                     dirty_page = dirty_steps = dirty_tags = 1; hints_key = 0xFFFFFFFFu; leds_q = 0xFFFFFFFFu;
                 }
@@ -2036,6 +2117,7 @@ static void app_main(void)
                             dirty_hdr = dirty_tags = 1;
                         } else { save_armed = 1; save_t = fm1_ms; save_to = ed_prog() < 32u ? 32u : ed_prog(); dirty_hdr = 1; }
                     }
+                    if (layer == L_SAVE) save_layer_end();
                     layer = L_NONE;
                     memset(erase_on, 0, sizeof erase_on);
                     step_held = -1; audition_off();
@@ -2571,20 +2653,38 @@ static void app_main(void)
         if (ui_pat_swapped != swap_seen) {      /* the ISR swapped the next pattern in (track A from the top) */
             static char msg[16];
             swap_seen = ui_pat_swapped;
+            uint32_t back = pat_q_back;
+            pat_q_back = 0;
             if (pat_edited && ctl_pat_keep) pend_slot = set.pat + 1u;   /* the one left: saved at the stop */
+            else if (back) pend_slot = 0;       /* (the one back has its edits with it) */
             set.pat = (uint8_t)(pat_queue ? pat_queue - 1u : set.pat);
             pat_queue = 0;
             seq_cur[0] = seq_cur[1] = seq_pg[0] = seq_pg[1] = 0;
-            pat_edited = 0; pat_edit_t = 0; slot_sel = set.pat;
+            pat_edited = back; pat_edit_t = 0; slot_sel = set.pat;
             set_dirty = 1; set_t = fm1_ms;
             msg[0] = 0; scat(msg, "PATTERN "); fmt_pat(msg, set.pat);
             bank_sel = set.pat / NPAT_BANK;
             say(msg);
             dirty_page = dirty_steps = dirty_hdr = 1;
         }
+        if (pch_n) {                            /* S1Vave-Banks: the pattern chain */
+            if (!ctl_seq_run) {                 /* stopped: the next one waits for PLAY (the one here stays) */
+                if (pch_run_was && pat_queue && ctl_pat_cycle) { ctl_pat_swap = 0; ctl_bq_swap = 0; ctl_pat_cycle = 0; pat_queue = 0; pat_q_back = 0; }
+                pch_queued = 0;
+                pch_cycles_seen = ui_cycles;
+            } else {
+                if (ui_cycles != pch_cycles_seen) {   /* a cycle ended: the chain moves on */
+                    pch_cycles_seen = ui_cycles;
+                    if (!pch_wait) { pch_pos = (pch_pos + 1u) % pch_n; pch_queued = 0; }
+                }
+                if (pch_wait && !pat_queue) pch_wait = 0;   /* (its first has come in) */
+                if (!pch_wait && !pch_queued && !pat_queue) pch_queue_next();
+            }
+        }
+        pch_run_was = ctl_seq_run;
         if (pat_queue && !ctl_seq_run) {        /* stopped before the loop's end: now */
             uint32_t n = pat_queue - 1u;
-            ctl_pat_swap = 0; ctl_bq_swap = 0; pat_queue = 0;
+            ctl_pat_swap = 0; ctl_bq_swap = 0; pat_queue = 0; pat_q_back = 0;
             pat_switch(n);
             dirty_page = dirty_steps = dirty_hdr = 1;
         }

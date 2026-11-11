@@ -218,10 +218,19 @@ static uint32_t voice_alloc(uint32_t part)
     return pick;
 }
 
+/* S1Vave-Banks: a variation's voicing laid over the sound's, per part (0 = the sound's own, else mode + 1); the
+ * sequencer sets it (seq_vmode_sync), the sound itself is never changed */
+static volatile uint8_t vmode_ovr[2];
+static inline uint32_t part_mode(uint32_t part, const uint8_t *pv)
+{
+    uint32_t o = vmode_ovr[part & 1u];
+    return o ? (o - 1u) % NPOLY_MODE : pv[P_POLY_MODE] % NPOLY_MODE;
+}
+
 static void voice_trigger(uint32_t part, uint32_t note, uint32_t vel)
 {
     const uint8_t *pv = pt[part].p->v;
-    uint32_t mode = pv[P_POLY_MODE] % NPOLY_MODE;
+    uint32_t mode = part_mode(part, pv);
 
     if (mode == POLY_POLY) {
         uint32_t v = voice_alloc(part);
@@ -329,7 +338,7 @@ static void voice_trigger(uint32_t part, uint32_t note, uint32_t vel)
 static void voice_release(uint32_t part, uint32_t note, uint32_t from_arp)
 {
     const uint8_t *pv = pt[part].p->v;
-    uint32_t v, mode = pv[P_POLY_MODE];
+    uint32_t v, mode = part_mode(part, pv);
 
     if ((mode == POLY_MONO || mode == POLY_UNISON || mode == POLY_CHORD) && !from_arp) {
         if (nheld[part]) {
