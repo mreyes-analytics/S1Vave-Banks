@@ -1,0 +1,22 @@
+# S1Vave-Banks: SEQ held + SELECT = the views both ways (STEP+ back to STEPS); PATTERNS: K2 CLEAR twice empties a slot
+3000 btn 11
+3100 btn 11
+3200 btn 11
+3300 btndown 11
+3400 enc 0 -1
+3500 btnup 11
+3600 shot
+3700 keys 0x1
+3800 keys 0
+3900 btn 9
+4200 btndown 11
+4300 enc 0 1
+4350 enc 0 1
+4400 enc 0 1
+4500 btnup 11
+4600 shot
+4700 enc 3 1
+4800 shot
+4900 enc 3 1
+7600 shot
+8000 end

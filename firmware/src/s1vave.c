@@ -87,6 +87,7 @@ static uint8_t rec_p[PCHAIN_MAX], rec_v[VCHAIN_MAX], pch[PCHAIN_MAX];
 static uint32_t rec_pn, rec_vn, pch_n, pch_pos, pch_wait, pch_queued, pch_cycles_seen, pch_run_was;
 static uint32_t pat_q_back;                     /* the pattern waiting is the one left with its edits (pat_old), back */
 static uint32_t pat_queue, copy_to, copy_arm, copy_arm_t;   /* pat_queue: the next pattern + 1 (playing: at A's loop end) */
+static uint32_t clear_to, clear_arm, clear_arm_t;   /* S1Vave-Banks: the slot to empty + 1 (when stopped), its confirmation */
 enum { CLICK_OFF, CLICK_REC, CLICK_ON, CLICK_COUNT, NCLICK };   /* COUNT: as REC, and REC armed + PLAY counts in a bar */
 static const char *const CLICK_NAME[NCLICK] = {"OFF", "REC", "ON", "COUNT-IN"};
 /* the panel as sloopDX's: a function button tapped (let go, nothing else touched) opens its pages; held, it is a
@@ -109,6 +110,7 @@ static uint32_t smk_pads_held, smk_pad_t0, smk_step_vel;
 #define NM_ALGO "K3"
 #define NM_KNOB4 "K8"
 #define NM_K1 "K5"                              /* (the short names in the sequencer's lines) */
+#define NM_K2 "K6"
 #define NM_K3 "K7"
 #define NM_K4 "K8"
 #define NM_PRESETS "K4"
@@ -125,6 +127,7 @@ static uint32_t smk_pads_held, smk_pad_t0, smk_step_vel;
 #define NM_ALGO "ALGORITHM"
 #define NM_KNOB4 "KNOB 4"
 #define NM_K1 "K1"
+#define NM_K2 "K2"
 #define NM_K3 "K3"
 #define NM_K4 "K4"
 #define NM_PRESETS "PRESETS"
@@ -1223,6 +1226,24 @@ static void pat_copy(uint32_t n)
     say(ctl_seq_run ? "COPIES WHEN STOPPED" : "COPYING");
 }
 
+/* S1Vave-Banks: empty slot n (PATTERNS: K2 CLEAR, twice): when stopped and quiet; the pattern here: a fresh one */
+static void pat_clear(uint32_t n)
+{
+    static char msg[24];
+    n %= NPAT;
+    msg[0] = 0;
+    if (!(pat_used >> n & 1u) && !(n == set.pat && pat_edited)) { say("ALREADY EMPTY"); return; }
+    if (clear_arm != n + 1u || fm1_ms - clear_arm_t > 3000u) {
+        clear_arm = n + 1u; clear_arm_t = fm1_ms;
+        scat(msg, "AGAIN: CLEAR "); fmt_pat(msg, n);
+        say(msg);
+        return;
+    }
+    clear_arm = 0;
+    clear_to = n + 1u;
+    say(ctl_seq_run ? "CLEARS WHEN STOPPED" : "CLEARING");
+}
+
 /* S1Vave-Banks: track A to variation v: stopped, at once (the cursor to its start); playing, at A's loop end */
 static void var_go(uint32_t v)
 {
@@ -1239,6 +1260,23 @@ static void var_go(uint32_t v)
     else if (v == pat.var_cur) { ctl_var_swap = 0; scat(msg, " STAYS"); }
     else { ctl_var_next = v; ctl_var_swap = 1; scat(msg, " NEXT"); }
     say(msg);
+}
+
+/* S1Vave-Banks: to sequencer view v (SEQ tapped: the next; SEQ held + SELECT: either way) */
+static void seq_view_enter(uint32_t v)
+{
+    static const char *const HINT[NSV] = {NM_ALGO ": A / B", "KEYS WRITE  " NM_K1 " MOVES", "MORE PER STEP", "THE TRACK: LENGTH ..", "THE PATTERNS", "VARIATIONS: START / END"};
+    seq_view = v % NSV;
+    if (seq_view == SV_SLOTS) slot_sel = pat_queue ? pat_queue - 1u : set.pat;
+    if (seq_view == SV_LOOP) {                  /* the variation playing first; the cursor at its start */
+        uint32_t lo, hi;
+        var_ed = pat.var_cur % NVAR;
+        pat_var_span(&pat, seq_trk, var_ed, pat.trk[seq_trk].len, &lo, &hi);
+        if (pat.trk[seq_trk].len) seq_cursor_set(seq_trk, lo);
+    }
+    clear_arm = 0;
+    say(HINT[seq_view]);
+    entry_reset();
 }
 
 /* S1Vave-Banks: the chain being pressed, as it grows ("CHAIN A1 A2 B3", "VAR CHAIN 1 1 2 3") */
@@ -1310,6 +1348,7 @@ static void seq_view_turn(uint32_t knob, int32_t e)
     step_t *st;
     if (seq_view == SV_SLOTS) {                 /* SLOT; GO there; COPY this one there */
         if (knob == 0) slot_sel = (uint32_t)clampi((int32_t)slot_sel + sg, 0, NPAT - 1);
+        else if (knob == 1u && e > 0) pat_clear(slot_sel);   /* S1Vave-Banks */
         else if (knob == 2u && e > 0) pat_go(slot_sel);
         else if (knob == 3u && e > 0) pat_copy(slot_sel);
         return;
@@ -1410,7 +1449,7 @@ static void seq_view_knob(knob_view_t *k, uint32_t i)
 {
     static const char *const L[NSV][4] = {{"LENGTH", "LEVEL", "CUTOFF", "FX SEND"}, {"STEP", "NOTE", "GATE", "VELO"},
                                           {"STEP", "RATCHET", "CHANCE", "ON/OFF"}, {"LENGTH", "DIV", "SWING", "TRANSP"},
-                                          {"SLOT", "", "GO", "COPY"}, {"START", "END", "VAR", "VOICE"}};
+                                          {"SLOT", "CLEAR", "GO", "COPY"}, {"START", "END", "VAR", "VOICE"}};
     uint32_t t = seq_trk, len = pat.trk[t].len, n;
     seqtrk_t *tk = &pat.trk[t];
     const step_t *st = seq_step(t, len ? seq_cur[t] % len : 0u);
@@ -1653,7 +1692,7 @@ static void draw_seq_slots(void)
         if (NBANK > 1u) { scat(l1, "  BANK "); fmt_pat(l1, slot_sel / NPAT_BANK * NPAT_BANK); l1[slen(l1) - 1u] = 0; }
         c = C_CREAM;
     }
-    scat(l2, NM_K1 " SLOT  " NM_K3 " GO  " NM_K4 " COPY HERE");
+    scat(l2, NM_K1 " SLOT " NM_K2 " CLR " NM_K3 " GO " NM_K4 " COPY");
     scat(l3, NM_PRESETS ": PATTERN  " NM_SAVE ": SAVE");
     ui_seq_lines(l1, c, l2, l3);
 }
@@ -2138,18 +2177,8 @@ static void app_main(void)
                     if (layer != LL[k] || layer_lock) continue;
                     if (!layer_used && fm1_ms - layer_t < 600u) {   /* a tap: the button's pages */
                         if (LL[k] == L_SEQ) {   /* SEQ: the full-screen sequencer; there, its next view (as SLOOP) */
-                            static const char *const HINT[NSV] = {NM_ALGO ": A / B", "KEYS WRITE  " NM_K1 " MOVES", "MORE PER STEP", "THE TRACK: LENGTH ..", "THE PATTERNS", "VARIATIONS: START / END"};
-                            if (is_seq_page(page)) seq_view = (seq_view + 1u) % NSV;
-                            else { seq_back = page; np = PG_SEQ; seq_view = SV_TRACKS; }
-                            if (seq_view == SV_SLOTS) slot_sel = pat_queue ? pat_queue - 1u : set.pat;
-                            if (seq_view == SV_LOOP) {   /* the variation playing first; the cursor at its start */
-                                uint32_t lo, hi;
-                                var_ed = pat.var_cur % NVAR;
-                                pat_var_span(&pat, seq_trk, var_ed, pat.trk[seq_trk].len, &lo, &hi);
-                                if (pat.trk[seq_trk].len) seq_cursor_set(seq_trk, lo);
-                            }
-                            say(HINT[seq_view]);
-                            entry_reset();
+                            if (is_seq_page(page)) seq_view_enter(seq_view + 1u);
+                            else { seq_back = page; np = PG_SEQ; seq_view_enter(SV_TRACKS); }
                         } else if (LL[k] == L_EDIT && is_seq_page(page) && SV_ENTRY(seq_view)) seq_clear_cursor();
                         else if (LL[k] == L_EDIT) np = cycle_page(PG_OSC_CORE, 6);
                         else if (LL[k] == L_FX) np = cycle_page(PG_FX_MIX, 3);
@@ -2391,7 +2420,12 @@ static void app_main(void)
             }
         }
         if ((e = fm1_enc_take(ENC_SELECT)) != 0) {   /* SELECT: the tempo, or OCT held = Key Transpose */
-            if ((fm1_in.buttons >> BTN_OCT_DOWN & 1u) || (fm1_in.buttons >> BTN_OCT_UP & 1u)) {
+            if (layer == L_SEQ && !layer_lock) {   /* S1Vave-Banks: SEQ held + SELECT = the sequencer's views, either way */
+                layer_used = 1;
+                if (!is_seq_page(page)) { seq_back = page; np = PG_SEQ; seq_view_enter(SV_TRACKS); }
+                else seq_view_enter(seq_view + (e > 0 ? 1u : NSV - 1u));
+                dirty_page = dirty_steps = dirty_tags = 1; hints_key = 0xFFFFFFFFu;
+            } else if ((fm1_in.buttons >> BTN_OCT_DOWN & 1u) || (fm1_in.buttons >> BTN_OCT_UP & 1u)) {
                 oct_used = 1;
                 oct_shown = 1;
                 np = PG_VOICE;
@@ -2760,7 +2794,7 @@ static void app_main(void)
             pat_switch(n);
             dirty_page = dirty_steps = dirty_hdr = 1;
         }
-        if ((pat_dirty || pend_slot || copy_to) && !ctl_seq_run && engine_quiet()) {
+        if ((pat_dirty || pend_slot || copy_to || clear_to) && !ctl_seq_run && engine_quiet()) {
             static char msg[20];
             if (pend_slot) {
                 pat_old.tempo = set.tempo;
@@ -2781,6 +2815,24 @@ static void app_main(void)
                 if (!bad) slot_saved(copy_to - 1u, &pat);
                 msg[0] = 0; scat(msg, bad ? "COPY FAILED " : "COPIED TO "); fmt_pat(msg, copy_to - 1u); say(msg);
                 copy_to = 0;
+            }
+            if (clear_to) {                     /* S1Vave-Banks: an invalid record: the slot reads as never saved */
+                static const uint32_t none = 0;
+                uint32_t n = clear_to - 1u;
+                int bad = blob_save(n, &none, sizeof none);
+                clear_to = 0;
+                if (!bad) {
+                    pat_used &= ~(1u << n);
+                    slot_len[n][0] = slot_len[n][1] = 0;
+                    if (pend_slot == n + 1u) pend_slot = 0;
+                    if (n == set.pat) {         /* the one here: fresh, from step 1 */
+                        pat_factory(n, &pat);
+                        pat_edited = 0; pat_edit_t = 0;
+                        seq_cur[0] = seq_cur[1] = seq_pg[0] = seq_pg[1] = 0;
+                        parts_point();
+                    }
+                }
+                msg[0] = 0; scat(msg, bad ? "CLEAR FAILED " : "CLEARED "); fmt_pat(msg, n); say(msg);
             }
             dirty_page = dirty_steps = dirty_hdr = 1;
         }

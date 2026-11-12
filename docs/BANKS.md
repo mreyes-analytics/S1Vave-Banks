@@ -40,6 +40,11 @@ Todo lo demás funciona igual que S1Vave.
 - Luces: el banco y la variación activos encendidos; los demás tenues.
 - Los patrones se nombran con banco + número: `A1` … `D8`. Arriba siempre se ve la variación que suena (`V2`).
 
+## Moverte entre vistas de SEQ y borrar patrones
+
+- **Tocar SEQ** = siguiente vista. **Mantener SEQ y girar SELECT** = vista anterior o siguiente (de STEP+ a STEPS es un giro a la izquierda).
+- Vista **PATTERNS**: con **K1** eliges el patrón y giras **K2 CLEAR** dos veces (`AGAIN: CLEAR B3`) → queda vacío. Si está sonando, se borra al dar STOP. **EDIT + OCT−** (deshacer) no lo recupera.
+
 ## Página LOOP (presionar SEQ hasta llegar a LOOP, es la última)
 
 El ciclo de SEQ queda: TRACKS → STEPS → STEP+ → TRACK → PATTERNS → **LOOP**.

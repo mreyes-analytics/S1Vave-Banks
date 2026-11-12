@@ -3,6 +3,11 @@
 Fork of [S1Vave](https://github.com/AndrewGG88/S1Vave) 1.12.3 for the M-VAVE FM-1.
 Full guide (Spanish): [docs/BANKS.md](docs/BANKS.md).
 
+## Next (not released yet)
+
+- **SEQ held + SELECT** = move between the sequencer views both ways (STEP+ back to STEPS in one turn). Tapping SEQ still goes forward.
+- **PATTERNS view: K2 CLEAR** empties the slot chosen with K1 (turn twice: `AGAIN: CLEAR B3`). Playing, it clears at the stop.
+
 ## banks3 (1.12.3-banks3)
 
 - **Silent writing**: with the track being written muted (GLO held + white 1 / 2), the keys in STEPS write without sounding.
