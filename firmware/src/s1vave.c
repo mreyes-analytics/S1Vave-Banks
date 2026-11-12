@@ -1101,9 +1101,18 @@ static int entry_active(void)
     return is_seq_page(page) && SV_ENTRY(seq_view) && !rec && !layer && step_held < 0 && pat.trk[seq_trk].len;
 }
 
-/* S1Vave-Banks: the track written is muted: the keys write without sounding (mute B, write B, unmute) */
+/* S1Vave-Banks: the keys write without sounding when what they write is not heard: the track is muted (mute B,
+ * write B, unmute), or playing, the cursor is outside the variation that track plays (write V2 while V1 plays) */
 static uint8_t key_silent[27], midi_silent[128];
-static int entry_silent(void) { return entry_active() && pat.trk[seq_trk].mute; }
+static int entry_silent(void)
+{
+    uint32_t t = seq_trk, len = pat.trk[t].len, lo, hi;
+    if (!entry_active()) return 0;
+    if (pat.trk[t].mute) return 1;
+    if (!ctl_seq_run || !len) return 0;
+    pat_var_span(&pat, t, pat.var_cur, len, &lo, &hi);
+    return seq_cur[t] % len < lo || seq_cur[t] % len > hi;
+}
 
 static void entry_note(uint32_t on, uint32_t note, uint32_t vel)
 {

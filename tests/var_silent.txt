@@ -1,0 +1,27 @@
+# S1Vave-Banks: A 32 steps. Playing V1 = the whole track: a key in STEPS writes and sounds. V1 cut short (LOOP: K2
+# END), playing again: a key on a step outside V1 writes silently
+3000 btn 11
+3100 enc 2 16
+3200 btn 11
+3300 btn 12
+3400 enc 2 19
+3500 keys 0x1
+3600 keys 0
+3700 btn 12
+3800 btndown 11
+3850 enc 0 -1
+3900 enc 0 -1
+3950 btnup 11
+4000 enc 3 -16
+4100 shot
+4200 btn 12
+4300 btndown 11
+4350 enc 0 1
+4400 enc 0 1
+4450 btnup 11
+4600 enc 2 19
+4700 keys 0x4
+4800 keys 0
+4900 btn 12
+5000 shot
+5200 end

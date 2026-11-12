@@ -85,7 +85,14 @@ SEL ahora recorre: ADV MIX → ADV FX → **CHORD**.
 
 ## Escribir en silencio
 
-Si el track que estás editando está en **MUTE**, las teclas en STEPS escriben las notas **sin sonar**.
+En STEPS / STEP+ las teclas escriben **sin sonar** cuando lo que escriben no se está oyendo:
+
+- el track está en **MUTE**, o
+- el secuenciador está sonando y el cursor está **fuera de la variación que suena** (por ejemplo, suena V1 = 1–16 y escribes en el step 20, que es de V2).
+
+Dentro de la variación que suena, o con el secuenciador detenido, las teclas suenan como siempre. Fuera de STEPS (HOME, TRACKS, LOOP, páginas de sonido) las teclas solo tocan y siempre suenan.
+
+Para B:
 
 1. Mantén **GLO** + **blanca 2** → B en mute (blanca 1 = A).
 2. En STEPS, con B elegido (ALGORITHM), escribe tus notas: no se oyen y B no suena.
