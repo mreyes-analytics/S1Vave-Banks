@@ -3,6 +3,11 @@
 Fork of [S1Vave](https://github.com/AndrewGG88/S1Vave) 1.12.3 for the M-VAVE FM-1.
 Full guide (Spanish): [docs/BANKS.md](docs/BANKS.md).
 
+## Next (not released yet)
+
+- **LOOP+ view** (after LOOP): K1 VAR (the variation edited), K2 TO, K3 COPY (VAR into TO: its steps, as many as fit in TO's own start..end, plus its VOICE and TRANSP; `AGAIN: OVERWRITE V2` when TO has notes), K4 TRANSP (−24..+24, over the track's TRANSP). Per track (ALGORITHM).
+- Patterns from banks2-4 load fine (no transpose per variation: 0).
+
 ## banks4 (1.12.3-banks4)
 
 - **SEQ held + SELECT** = move between the sequencer views both ways (STEP+ back to STEPS in one turn). Tapping SEQ still goes forward.

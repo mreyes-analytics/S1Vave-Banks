@@ -43,10 +43,14 @@ typedef struct {
     uint8_t vchain[VCHAIN_MAX];   /* the variation chain: one loop each, then again from the first */
     uint8_t vchain_n;             /* its length (0, 1: no chain) */
     uint8_t vchain_pad[3];
+    /* S1Vave-Banks 5: up to here the 2156 bytes of a banks2-4 pattern */
+    int8_t var_transp[2][NVAR];   /* each variation's transpose per track, -24..+24 (over the track's TRANSP) */
 } pattern_t;
 #define PAT_SIZE_V1 2116u                       /* a pattern saved by S1Vave 1.x (no variations) */
 #define PAT_SIZE_B1 2136u                       /* a pattern saved by S1Vave-Banks 1 (no chain, no voicing) */
+#define PAT_SIZE_B2 2156u                       /* a pattern saved by S1Vave-Banks 2-4 (no transpose per variation) */
 _Static_assert(__builtin_offsetof(pattern_t, var_voice) == PAT_SIZE_B1, "S1Vave-Banks: the banks-1 pattern must be the prefix");
+_Static_assert(__builtin_offsetof(pattern_t, var_transp) == PAT_SIZE_B2, "S1Vave-Banks: the banks-2 pattern must be the prefix");
 _Static_assert(__builtin_offsetof(pattern_t, var_lo) == PAT_SIZE_V1, "S1Vave-Banks: the old pattern must be the prefix");
 _Static_assert(sizeof(pattern_t) <= SETTINGS_MAX, "a pattern fits its sector");
 
@@ -71,6 +75,13 @@ static volatile uint32_t vchain_pos = 0xFFu, ctl_vchain_restart, ui_cycles, ctl_
 /* ISR -> main loop: where each track is (step, and how far into it, Q8) */
 static volatile uint32_t ui_seq_pos[2], ui_seq_frac[2], ui_seq_dur[2], ui_seq_ticks, ui_seq_beat;   /* dur: frames */
 
+/* ---- banks 5: no transpose per variation */
+static void pat_v5_init(pattern_t *p)
+{
+    uint32_t i;
+    for (i = 0; i < NVAR; i++) p->var_transp[0][i] = p->var_transp[1][i] = 0;
+}
+
 /* ---- banks 2: the voicing per variation (all "the sound's own") and no variation chain */
 static void pat_v2_init(pattern_t *p)
 {
@@ -79,6 +90,7 @@ static void pat_v2_init(pattern_t *p)
     for (i = 0; i < VCHAIN_MAX; i++) p->vchain[i] = 0;
     p->vchain_n = 0;
     p->vchain_pad[0] = p->vchain_pad[1] = p->vchain_pad[2] = 0;
+    pat_v5_init(p);
 }
 
 /* ---- the variations, in pairs: one number for both tracks, each track with its own start..end.
@@ -285,6 +297,7 @@ static void seq_tick(void)
         seqrun_t *r = &sr[t];
         const seqtrk_t *k = &pat.trk[t];
         const step_t *s;
+        int32_t tr;
         uint32_t len = k->len;
         if (!len) { seq_release(r); r->tie = 0; continue; }
         if (r->cnt >= r->dur) {                 /* the next step */
@@ -330,6 +343,7 @@ static void seq_tick(void)
             r->dur = r->step & 1u ? base - sw : base + sw;   /* swing: the first of each pair longer */
             if (r->dur < CTL) r->dur = CTL;
             s = seq_step(t, r->step);
+            tr = k->transp + pat.var_transp[t][pat.var_cur % NVAR];   /* S1Vave-Banks: + the variation's */
             uint32_t eff_chance = s->chance;
             if (eff_chance < 100u) {
                 int32_t c = (int32_t)eff_chance + (int32_t)pat.master_prob;
@@ -337,10 +351,10 @@ static void seq_tick(void)
             }
             r->play = s->note[0] && !(s->ratch & STEP_OFF) && !k->mute && (s->chance >= 100u || xorshift(&rnd_state) % 100u < eff_chance);
             if (r->tie)                         /* a tie: the notes the step plays again hold */
-                seq_tie_into(r, s, k->transp, r->play);
+                seq_tie_into(r, s, tr, r->play);
             else {
                 seq_release(r);
-                if (r->play) seq_sound(r, s, k->transp);
+                if (r->play) seq_sound(r, s, tr);
             }
             r->rat_n = (s->ratch & 3u) + 1u;
             r->sub = r->dur / r->rat_n;
@@ -352,7 +366,7 @@ static void seq_tick(void)
             s = seq_step(t, r->step < len ? r->step : 0u);
             if (r->play && r->rat_n > 1u && r->sub) {   /* a ratchet: the next hit */
                 uint32_t i = r->cnt / r->sub;
-                if (i > r->rat_i && i < r->rat_n) { r->rat_i = i; seq_release(r); seq_sound(r, s, k->transp); }
+                if (i > r->rat_i && i < r->rat_n) { r->rat_i = i; seq_release(r); seq_sound(r, s, k->transp + pat.var_transp[t][pat.var_cur % NVAR]); }
             }
         }
         if (r->nsnd && r->gate_at != 0xFFFFFFFFu && r->cnt - r->rat_i * r->sub >= r->gate_at) seq_release(r);

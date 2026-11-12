@@ -72,14 +72,15 @@ static uint8_t audition[SEQ_CHORD], audition_part;   /* the held step's notes so
 static const char *toast;
 static int is_seq_page(uint32_t pg) { return pg == PG_SEQ; }
 /* the full-screen sequencer's views (SEQ tapped steps through the first three; SAVE tapped there: PATTERNS) */
-enum { SV_TRACKS, SV_STEPS, SV_MORE, SV_TRACK, SV_SLOTS, SV_LOOP, NSV };   /* (S1Vave-Banks: LOOP last, the rest as before) */   /* TRACKS first: A and B one under the other (SLOOP) */
-static const char *const SV_NAME[NSV] = {"TRACKS", "STEPS", "STEP+", "TRACK", "PATTERNS", "LOOP"};
+enum { SV_TRACKS, SV_STEPS, SV_MORE, SV_TRACK, SV_SLOTS, SV_LOOP, SV_LOOP2, NSV };   /* (S1Vave-Banks: LOOP last, the rest as before) */   /* TRACKS first: A and B one under the other (SLOOP) */
+static const char *const SV_NAME[NSV] = {"TRACKS", "STEPS", "STEP+", "TRACK", "PATTERNS", "LOOP", "LOOP+"};
 #define SV_ENTRY(v) ((v) == SV_STEPS || (v) == SV_MORE)   /* the views where the keys write into the cursor's step */
 static uint32_t seq_view, slot_sel, pat_used, pat_next, arm_k, arm_t, entry_n, pat_edit_t, pend_slot, pat_save_say;
 static uint8_t entry_on_note[128];              /* the keys writing into the cursor step now */
 static uint16_t slot_len[NPAT][2];              /* the saved patterns' track lengths (the PATTERNS view) */
 static uint32_t bank_sel;                       /* S1Vave-Banks: the bank SAVE held + white 1-8 / black 1-8 work in */
 static uint32_t var_ed;                         /* the variation the LOOP view edits (K3), not the one playing */
+static uint32_t var_to, vcopy_arm, vcopy_arm_t; /* LOOP+: the variation copied to (K2), its overwrite confirmation */
 /* the chains: SAVE held, the white keys pressed one after another (rec_*); let go: 2 or more = a chain. The pattern
  * chain (pch, in RAM only) moves on at the end of each cycle of the pattern playing (ui_cycles) */
 #define PCHAIN_MAX 16u
@@ -142,6 +143,7 @@ static void say(const char *s) { toast = s; toast_t = fm1_ms; }
 static int pat_load_blob(uint32_t n, pattern_t *p)
 {
     if (!blob_load(n, p, sizeof *p) && p->magic == PAT_MAGIC) return 0;
+    if (!blob_load(n, p, PAT_SIZE_B2) && p->magic == PAT_MAGIC) { pat_v5_init(p); return 0; }   /* (banks 2-4) */
     if (!blob_load(n, p, PAT_SIZE_B1) && p->magic == PAT_MAGIC) { pat_v2_init(p); return 0; }   /* (banks 1) */
     if (!blob_load(n, p, PAT_SIZE_V1) && p->magic == PAT_MAGIC) { pat_var_init(p); return 0; }
     return -1;
@@ -1274,10 +1276,16 @@ static void var_go(uint32_t v)
 /* S1Vave-Banks: to sequencer view v (SEQ tapped: the next; SEQ held + SELECT: either way) */
 static void seq_view_enter(uint32_t v)
 {
-    static const char *const HINT[NSV] = {NM_ALGO ": A / B", "KEYS WRITE  " NM_K1 " MOVES", "MORE PER STEP", "THE TRACK: LENGTH ..", "THE PATTERNS", "VARIATIONS: START / END"};
+    static const char *const HINT[NSV] = {NM_ALGO ": A / B", "KEYS WRITE  " NM_K1 " MOVES", "MORE PER STEP", "THE TRACK: LENGTH ..", "THE PATTERNS", "VARIATIONS: START / END", "VARIATIONS: COPY / TRANSP"};
+    uint32_t from = seq_view;
     seq_view = v % NSV;
     if (seq_view == SV_SLOTS) slot_sel = pat_queue ? pat_queue - 1u : set.pat;
-    if (seq_view == SV_LOOP) {                  /* the variation playing first; the cursor at its start */
+    if (seq_view == SV_LOOP2) {                 /* LOOP+: the variation edited in LOOP (else the one playing), to the next */
+        if (from != SV_LOOP) var_ed = pat.var_cur % NVAR;
+        var_to = (var_ed + 1u) % NVAR;
+        vcopy_arm = 0;
+    }
+    if (seq_view == SV_LOOP && from != SV_LOOP2) {   /* the variation playing first (from LOOP+: the one edited there) */
         uint32_t lo, hi;
         var_ed = pat.var_cur % NVAR;
         pat_var_span(&pat, seq_trk, var_ed, pat.trk[seq_trk].len, &lo, &hi);
@@ -1349,6 +1357,36 @@ static void seq_clear_cursor(void)              /* EDIT tapped: the cursor's ste
     say("STEP CLEARED");
 }
 
+/* S1Vave-Banks: variation var_ed into var_to on this track: the steps (as many as fit in var_to's own start..end, so
+ * no other variation is touched), its voicing and transpose. Notes there: AGAIN first */
+static void var_copy(void)
+{
+    static char msg[24];
+    uint32_t t = seq_trk, len = pat.trk[t].len, a0, a1, b0, b1, n, i, used = 0;
+    uint32_t src = var_ed % NVAR, dst = var_to % NVAR;
+    if (!len) { say(t ? "B IS OFF: GIVE IT A LENGTH" : "A IS OFF: GIVE IT A LENGTH"); return; }
+    if (src == dst) { say("PICK ANOTHER: " NM_K2 " TO"); return; }
+    pat_var_span(&pat, t, src, len, &a0, &a1);
+    pat_var_span(&pat, t, dst, len, &b0, &b1);
+    n = a1 - a0 < b1 - b0 ? a1 - a0 + 1u : b1 - b0 + 1u;
+    for (i = 0; i < n; i++) if (seq_step(t, b0 + i)->note[0]) used = 1;
+    msg[0] = 0;
+    if (used && (vcopy_arm != dst + 1u || fm1_ms - vcopy_arm_t > 3000u)) {
+        vcopy_arm = dst + 1u; vcopy_arm_t = fm1_ms;
+        scat(msg, "AGAIN: OVERWRITE V"); fmt_u(msg + slen(msg), dst + 1u);
+        say(msg);
+        return;
+    }
+    vcopy_arm = 0;
+    undo_save();
+    if (a0 != b0) for (i = 0; i < n; i++) *seq_step(t, b0 + i) = *seq_step(t, a0 + i);
+    pat.var_voice[t][dst] = pat.var_voice[t][src];
+    pat.var_transp[t][dst] = pat.var_transp[t][src];
+    pat_edited = 1;
+    scat(msg, "V"); fmt_u(msg + slen(msg), src + 1u); scat(msg, " COPIED TO V"); fmt_u(msg + slen(msg), dst + 1u);
+    say(msg);
+}
+
 static void seq_view_turn(uint32_t knob, int32_t e)
 {
     uint32_t t = seq_trk, len = pat.trk[t].len, k;
@@ -1360,6 +1398,23 @@ static void seq_view_turn(uint32_t knob, int32_t e)
         else if (knob == 1u && e > 0) pat_clear(slot_sel);   /* S1Vave-Banks */
         else if (knob == 2u && e > 0) pat_go(slot_sel);
         else if (knob == 3u && e > 0) pat_copy(slot_sel);
+        return;
+    }
+    if (seq_view == SV_LOOP2) {                 /* S1Vave-Banks: VAR (edited), TO, COPY VAR there, TRANSP of VAR */
+        if (knob == 0u) {                       /* (the cursor to its start, as LOOP's VAR) */
+            uint32_t lo, hi;
+            var_ed = (uint32_t)clampi((int32_t)(var_ed % NVAR) + sg, 0, NVAR - 1);
+            vcopy_arm = 0;
+            pat_var_span(&pat, t, var_ed, len, &lo, &hi);
+            if (len) seq_cursor_set(t, lo);
+        }
+        else if (knob == 1u) { var_to = (uint32_t)clampi((int32_t)(var_to % NVAR) + sg, 0, NVAR - 1); vcopy_arm = 0; }
+        else if (knob == 2u) { if (e > 0) var_copy(); }
+        else {
+            int8_t *x = &pat.var_transp[t][var_ed % NVAR];
+            *x = (int8_t)clampi(*x + sg, -24, 24);
+            pat_edited = 1;
+        }
         return;
     }
     if (seq_view == SV_LOOP) {                  /* S1Vave-Banks: START, END of variation VAR (K3) on this track; PLAY it */
@@ -1458,7 +1513,8 @@ static void seq_view_knob(knob_view_t *k, uint32_t i)
 {
     static const char *const L[NSV][4] = {{"LENGTH", "LEVEL", "CUTOFF", "FX SEND"}, {"STEP", "NOTE", "GATE", "VELO"},
                                           {"STEP", "RATCHET", "CHANCE", "ON/OFF"}, {"LENGTH", "DIV", "SWING", "TRANSP"},
-                                          {"SLOT", "CLEAR", "GO", "COPY"}, {"START", "END", "VAR", "VOICE"}};
+                                          {"SLOT", "CLEAR", "GO", "COPY"}, {"START", "END", "VAR", "VOICE"},
+                                          {"VAR", "TO", "COPY", "TRANSP"}};
     uint32_t t = seq_trk, len = pat.trk[t].len, n;
     seqtrk_t *tk = &pat.trk[t];
     const step_t *st = seq_step(t, len ? seq_cur[t] % len : 0u);
@@ -1466,6 +1522,14 @@ static void seq_view_knob(knob_view_t *k, uint32_t i)
     k->label = L[seq_view][i];
     k->present = k->label[0] != 0;
     k->bip = 0; k->v = 0; k->max = 0;
+    if (seq_view == SV_LOOP2) {                 /* S1Vave-Banks */
+        uint32_t w = var_ed % NVAR;
+        if (i == 0) { fmt_u(v, w + 1u); k->v = (int32_t)w; k->max = NVAR - 1; }
+        else if (i == 1u) { fmt_u(v, var_to % NVAR + 1u); k->v = (int32_t)(var_to % NVAR); k->max = NVAR - 1; }
+        else if (i == 2u) scat(v, vcopy_arm ? "AGAIN" : "TURN");
+        else { fmt_s(v, pat.var_transp[t][w]); k->v = pat.var_transp[t][w] + 24; k->max = 48; k->bip = 1; }
+        return;
+    }
     if (seq_view == SV_LOOP) {                  /* S1Vave-Banks */
         uint32_t w = var_ed % NVAR, lo, hi;
         if (i == 2u) { fmt_u(v, w + 1u); k->v = (int32_t)w; k->max = NVAR - 1; return; }
@@ -1592,6 +1656,18 @@ static void seq_info_line(char *s, uint16_t *c)
     }
     if (layer) { scat(s, "LET GO: BACK"); return; }
     *c = C_CREAM;
+    if (seq_view == SV_LOOP2) {                 /* S1Vave-Banks: "V1 A 1-16 > V2 17-32" */
+        uint32_t a0, a1, b0, b1;
+        if (!len) { *c = C_DIMT; scat(s, t ? "B IS OFF: " NM_K1 " ON TRACK" : "A IS OFF: " NM_K1 " ON TRACK"); return; }
+        pat_var_span(&pat, t, var_ed % NVAR, len, &a0, &a1);
+        pat_var_span(&pat, t, var_to % NVAR, len, &b0, &b1);
+        scat(s, "V"); fmt_u(s + slen(s), var_ed % NVAR + 1u); scat(s, t ? " B " : " A ");
+        fmt_u(s + slen(s), a0 + 1u); scat(s, "-"); fmt_u(s + slen(s), a1 + 1u);
+        scat(s, " > V"); fmt_u(s + slen(s), var_to % NVAR + 1u); scat(s, " ");
+        fmt_u(s + slen(s), b0 + 1u); scat(s, "-"); fmt_u(s + slen(s), b1 + 1u);
+        if (var_ed % NVAR == var_to % NVAR) *c = C_DIMT;
+        return;
+    }
     if (seq_view == SV_LOOP) {                  /* S1Vave-Banks: "EDIT 3 A: 33-48 (16)" */
         uint32_t w = var_ed % NVAR, lo, hi;
         if (!len) { *c = C_DIMT; scat(s, t ? "B IS OFF: " NM_K1 " ON TRACK" : "A IS OFF: " NM_K1 " ON TRACK"); return; }

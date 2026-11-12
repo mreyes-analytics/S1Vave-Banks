@@ -47,7 +47,7 @@ Todo lo demás funciona igual que S1Vave.
 
 ## Página LOOP (presionar SEQ hasta llegar a LOOP, es la última)
 
-El ciclo de SEQ queda: TRACKS → STEPS → STEP+ → TRACK → PATTERNS → **LOOP**.
+El ciclo de SEQ queda: TRACKS → STEPS → STEP+ → TRACK → PATTERNS → **LOOP** → **LOOP+**.
 
 | Control | Hace |
 |---|---|
@@ -69,6 +69,24 @@ Ejemplo, patrón A1 con track A de 64 steps y B de 16:
 | 4 | 49 – 64 | completo |
 
 Defaults: en A, la 1 es todo el track y la 2–4 son 17–32, 33–48 y 49–64; en B las 4 son el track completo. Así, un patrón que no tocas suena igual que antes.
+
+## Página LOOP+ (la que sigue después de LOOP)
+
+Para sacar variaciones de una misma idea: copiar una variación a otra y transponerla.
+
+| Perilla | Hace |
+|---|---|
+| **K1 VAR** | La variación que editas |
+| **K2 TO** | A cuál la copias |
+| **K3 COPY** | Copia VAR en TO (si TO ya tiene notas, gira otra vez: `AGAIN: OVERWRITE V2`) |
+| **K4 TRANSP** | Transpone la variación VAR, de −24 a +24 semitonos |
+
+- Copia las notas de cada step (gate, velocidad, ratchet, chance) y también el VOICE y el TRANSP. Respeta el inicio y fin de la variación destino: si es más corta, copia solo lo que cabe y nunca pisa otra variación.
+- Es por track: ALGORITHM elige A o B.
+- El TRANSP de la variación se suma al TRANSP del track (vista TRACK). En STEPS ves las notas sin transponer; al sonar suben o bajan.
+- **EDIT + OCT−** deshace la copia.
+
+Ejemplo: programas V1, en LOOP+ pones VAR 1, TO 2 y giras COPY. Luego VAR 2, TRANSP +5. En LOOP le pones VOICE = CHORD. Ya tienes V2 como la misma frase, 5 semitonos arriba y en acordes.
 
 ## Página CHORD (presionar SEL hasta llegar a CHORD)
 
