@@ -3,7 +3,7 @@
 Fork of [S1Vave](https://github.com/AndrewGG88/S1Vave) 1.12.3 for the M-VAVE FM-1.
 Full guide (Spanish): [docs/BANKS.md](docs/BANKS.md).
 
-## Next (not released yet)
+## banks4 (1.12.3-banks4)
 
 - **SEQ held + SELECT** = move between the sequencer views both ways (STEP+ back to STEPS in one turn). Tapping SEQ still goes forward.
 - **Silent writing outside the variation playing**: playing, a key in STEPS on a step outside the variation that track plays writes without sounding (write V2 while V1 plays). Inside it, or stopped, keys sound as before.
