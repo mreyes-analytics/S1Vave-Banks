@@ -95,7 +95,7 @@ SEL ahora recorre: ADV MIX → ADV FX → **CHORD**.
 | Perilla | Hace |
 |---|---|
 | **K1 TYPE** | Tipo de acorde de un golpe: `MAJ`, `MIN`, `SUS4`, `7`, `MIN7`, `POWER`, `OCT` |
-| **K2 / K3 / K4** | Voz 2 / 3 / 4: `OFF` o de −12 a +12 semitonos sobre la nota que tocas |
+| **K2 / K3 / K4 (NOTE 2 / 3 / 4)** | Las notas que el acorde agrega: `OFF` o de −12 a +12 semitonos sobre la nota que tocas (+3 tercera menor, +4 tercera mayor, +7 quinta, +12 octava) |
 
 - Si mueves K2–K4 a mano, TYPE dice `CUSTOM`.
 - El acorde es parte del **sonido**: aplica a todas las variaciones que usen `CHORD`. Para conservarlo, guarda el sonido (SAVE dos veces).

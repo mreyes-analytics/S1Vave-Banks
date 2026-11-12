@@ -791,7 +791,7 @@ static void draw_page(void)
                 k[i].max = NCHORD_TYPE;
                 scat(k[i].value, ty < 0 ? "CUSTOM" : CHORD_TYPE[ty].name);
             } else {
-                static const char *const LBL[3] = {"V2", "V3", "V4"};
+                static const char *const LBL[3] = {"NOTE 2", "NOTE 3", "NOTE 4"};
                 int32_t c = chord_voice(d, i - 1u);
                 k[i].label = LBL[i - 1u];
                 k[i].v = c == CHORD_OFF ? 0 : c + 13;
