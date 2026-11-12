@@ -1098,6 +1098,10 @@ static int entry_active(void)
     return is_seq_page(page) && SV_ENTRY(seq_view) && !rec && !layer && step_held < 0 && pat.trk[seq_trk].len;
 }
 
+/* S1Vave-Banks: the track written is muted: the keys write without sounding (mute B, write B, unmute) */
+static uint8_t key_silent[27], midi_silent[128];
+static int entry_silent(void) { return entry_active() && pat.trk[seq_trk].mute; }
+
 static void entry_note(uint32_t on, uint32_t note, uint32_t vel)
 {
     uint32_t t = seq_trk, len = pat.trk[t].len, k;
@@ -1481,7 +1485,7 @@ static void draw_seq_top(void)
     fmt_pat(mid, set.pat);
     if (pat_edited) scat(mid, "*");
     if (pat_queue) { scat(mid, ">"); fmt_pat(mid, pat_queue - 1u); }
-    if (!pat_queue && seq_view != SV_SLOTS) {   /* S1Vave-Banks: the variation playing (">3": the next) */
+    if (!pat_queue && seq_view != SV_SLOTS && !pat.trk[t].mute) {   /* S1Vave-Banks: the variation playing (">3": the next) */
         scat(mid, " V"); fmt_u(mid + slen(mid), pat.var_cur % NVAR + 1u);
         if (ctl_var_swap) { scat(mid, ">"); fmt_u(mid + slen(mid), ctl_var_next % NVAR + 1u); }
     }
@@ -1733,7 +1737,8 @@ static void keys_in(uint32_t notes_only)
                     pat_edited = 1;
                     dirty_page = dirty_steps = 1;
                 }
-                play_note(1, held_key[k], KEY_VEL(k)); midi_send(0x90, held_key[k], KEY_VEL(k));
+                key_silent[k] = (uint8_t)entry_silent();
+                if (!key_silent[k]) { play_note(1, held_key[k], KEY_VEL(k)); midi_send(0x90, held_key[k], KEY_VEL(k)); }
                 if (rec_keys()) rec_note(1, held_key[k], KEY_VEL(k));
                 pen_add(held_key[k]);
                 entry_note(1, held_key[k], KEY_VEL(k));   /* the full-screen sequencer: into the cursor's step */
@@ -1748,7 +1753,8 @@ static void keys_in(uint32_t notes_only)
             if (key_step[k] == 2u) erase_on[(uint32_t)clampi((int32_t)held_key[k] - pat.trk[seq_trk].transp, 1, 127)] = 0;
             else if (key_step[k] == 1u) seq_key_up(k);
             else if (key_step[k] == 0u) {
-                play_note(0, held_key[k], 0); midi_send(0x80, held_key[k], 0);
+                if (!key_silent[k]) { play_note(0, held_key[k], 0); midi_send(0x80, held_key[k], 0); }
+                key_silent[k] = 0;
                 if (rec_keys()) rec_note(0, held_key[k], 0);
                 if (notes_down) notes_down--;
                 entry_note(0, held_key[k], 0);
@@ -1807,7 +1813,10 @@ static void midi_in(uint32_t notes_only)
         }
         if (set.midi_ch && ch != set.midi_ch) continue;
         if (kind == 0x90u && d2) {
-            play_note(1, d1, d2); if (rec_keys()) rec_note(1, d1, d2); pen_add(d1);
+            midi_silent[d1 & 127u] = (uint8_t)(step_held < 0 && entry_silent());
+            if (!midi_silent[d1 & 127u]) play_note(1, d1, d2);
+            if (rec_keys()) rec_note(1, d1, d2);
+            pen_add(d1);
             if (step_held < 0) entry_note(1, d1, d2);
             if (step_held >= 0 && !rec) {   /* a held step takes what MIDI plays: the first note starts the chord */
                 step_t *sp = seq_step(seq_trk, (uint32_t)step_held);
@@ -1820,7 +1829,10 @@ static void midi_in(uint32_t notes_only)
             if (notes_shown()) dirty_steps = dirty_page = 1;
         }
         else if (kind == 0x80u || kind == 0x90u) {
-            play_note(0, d1, 0); if (rec_keys()) rec_note(0, d1, 0); if (notes_down) notes_down--;
+            if (!midi_silent[d1 & 127u]) play_note(0, d1, 0);
+            midi_silent[d1 & 127u] = 0;
+            if (rec_keys()) rec_note(0, d1, 0);
+            if (notes_down) notes_down--;
             entry_note(0, d1, 0);
             dirty_page |= rec || is_seq_page(page); dirty_steps = 1;
         }

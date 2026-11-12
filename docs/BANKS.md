@@ -78,6 +78,14 @@ SEL ahora recorre: ADV MIX → ADV FX → **CHORD**.
 - El acorde es parte del **sonido**: aplica a todas las variaciones que usen `CHORD`. Para conservarlo, guarda el sonido (SAVE dos veces).
 - Para el Unison: SEL → **ADV MIX**, K1 SPREAD (abre el estéreo) y K2 DETUNE (más gordo).
 
+## Escribir en silencio
+
+Si el track que estás editando está en **MUTE**, las teclas en STEPS escriben las notas **sin sonar**.
+
+1. Mantén **GLO** + **blanca 2** → B en mute (blanca 1 = A).
+2. En STEPS, con B elegido (ALGORITHM), escribe tus notas: no se oyen y B no suena.
+3. **GLO + blanca 2** otra vez → B entra con lo que programaste.
+
 ## Flujo en vivo
 
 1. Suena la variación 2.

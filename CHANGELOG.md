@@ -3,6 +3,11 @@
 Fork of [S1Vave](https://github.com/AndrewGG88/S1Vave) 1.12.3 for the M-VAVE FM-1.
 Full guide (Spanish): [docs/BANKS.md](docs/BANKS.md).
 
+## Next (not released yet)
+
+- **Silent writing**: with the track being written muted (GLO held + white 1 / 2), the keys in STEPS write without sounding.
+- Screen: with the track muted, the variation is left off the top line so MUTE fits.
+
 ## banks2 (1.12.3-banks2)
 
 - **Voicing per variation**: LOOP **K4 VOICE** (replaces PLAY) = SOUND / MONO / UNISON / POLY / CHORD per variation and track, laid over the sound (the program itself never changes).

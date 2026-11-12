@@ -1,0 +1,15 @@
+# S1Vave-Banks: STEPS with the track unmuted: a key sounds and writes; GLO held + white 1 mutes A: keys write silently
+3000 btn 11
+3100 btn 11
+3300 keys 0x80
+3400 keys 0
+3600 btndown 7
+3650 keys 0x1
+3700 keys 0
+3750 btnup 7
+3900 keys 0x800
+4000 keys 0
+4100 keys 0x4000
+4200 keys 0
+4400 shot
+4600 end
