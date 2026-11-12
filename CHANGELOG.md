@@ -1,7 +1,12 @@
 # S1Vave-Banks — Changelog
 
-Fork of [S1Vave](https://github.com/AndrewGG88/S1Vave) 1.12.3 for the M-VAVE FM-1.
+An add-on to [S1Vave](https://github.com/AndrewGG88/S1Vave) 1.12.3 by Andrew GG for the M-VAVE FM-1, by Zh-Aman. The sound engine is S1Vave's, untouched.
 Full guide (Spanish): [docs/BANKS.md](docs/BANKS.md).
+
+## Next (not released yet)
+
+- Boot screen: a quiet credit line `BANKS ADD-ON: ZH-AMAN` under S1Vave's; the version line fits the screen again (`V1.12.3-banks5 * OPEN SOURCE`).
+- README: what S1Vave-Banks is and credits.
 
 ## banks5 (1.12.3-banks5)
 

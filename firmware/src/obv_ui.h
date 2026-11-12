@@ -588,7 +588,7 @@ static void splash_frame(uint32_t fade, uint32_t sub)
 #ifndef APP_VER
 #define APP_VER "1.11"
 #endif
-    const char *t_ver = "VERSION " APP_VER "  *  OPEN SOURCE";
+    const char *t_ver = "V" APP_VER " * OPEN SOURCE";   /* (S1Vave-Banks: "-banks5" needs the room) */
 
     /* Strip 1: S1VAVE Logo + Subtitles + Rule (Rows 0..119) */
     cv_begin(240, 120, C_PANEL);
@@ -621,6 +621,8 @@ static void splash_frame(uint32_t fade, uint32_t sub)
         cv_text((240 - text_w(&FONT_S, t_by)) / 2, 48, &FONT_S, t_by, blend565(C_PANEL, C_CYAN_LOGO, sub));
         cv_rect(35, 72, 170, 1, blend565(C_PANEL, C_RULE, sub));
         cv_text((240 - text_w(&FONT_S, t_ver)) / 2, 84, &FONT_S, t_ver, blend565(C_PANEL, RGB(75, 90, 96), sub));
+        /* S1Vave-Banks: the add-on's credit, quieter than the line above */
+        cv_text((240 - text_w(&FONT_S, "BANKS ADD-ON: ZH-AMAN")) / 2, 102, &FONT_S, "BANKS ADD-ON: ZH-AMAN", blend565(C_PANEL, RGB(60, 72, 78), sub));
     }
     cv_blit(0, 120);
 }

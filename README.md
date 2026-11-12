@@ -1,5 +1,10 @@
 # S1Vave — 8-Voice Virtual Analog Tweak Synth for M-VAVE FM-1
 
+> **S1Vave-Banks** is a small add-on to [S1Vave](https://github.com/AndrewGG88/S1Vave) by Andrew GG, put together by **Zh-Aman**.
+> The sound engine is S1Vave's, untouched. Only the sequencer grows, using flash memory S1Vave leaves free:
+> 4 pattern banks (32 patterns), 4 variations per pattern (A and B in pairs), chains, LOOP / LOOP+ (copy, transpose, voicing per variation), a CHORD page.
+> Guide: [docs/BANKS.md](docs/BANKS.md) · Changes: [CHANGELOG.md](CHANGELOG.md) · Downloads: [Releases](../../releases). Everything below is S1Vave's own README.
+
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![Hardware Target](https://img.shields.io/badge/Target-M--VAVE%20FM--1-orange.svg)](docs/PANEL_GUIDE.md)
 [![SMK-37 Port](https://img.shields.io/badge/Also%20Runs%20On-M--VAVE%20SMK--37-purple.svg)](SMK37.md)
@@ -12,9 +17,6 @@ Every aspect—from the classic oscillator core and sub-oscillator waveshapes, t
 <p align="center"><img src="docs/screen.png" width="240" alt="S1Vave on the M-VAVE FM-1: PTN 1-01, PERFORM page with CUTOFF, RESO, ENV AMT, PORTA T, real-time scope, 7-segment display, and 8-voice LEDs"></p>
 
 ---
-
-> **S1Vave-Banks fork:** 4 pattern banks (A–D, 32 patterns) and 4 paired variations per pattern (own start/end for track A and B).
-> Hold SAVE + white keys 9–12 = bank, 13–16 = variation; SEQ → LOOP view. See [docs/BANKS.md](docs/BANKS.md) and [CHANGELOG.md](CHANGELOG.md).
 
 ## Highlights & Features
 
