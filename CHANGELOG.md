@@ -7,6 +7,7 @@ Full guide (Spanish): [docs/BANKS.md](docs/BANKS.md).
 
 - Boot screen: a quiet credit line `BANKS ADD-ON: ZH-AMAN` under S1Vave's; the version line fits the screen again (`V1.12.3-banks5 * OPEN SOURCE`).
 - README: what S1Vave-Banks is and credits.
+- **Mutes stay when the pattern changes while playing** (by hand or by the pattern chain): mute B in A1, and A2 comes in with B still muted, so you can keep writing B silently.
 
 ## banks5 (1.12.3-banks5)
 

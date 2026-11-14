@@ -32,6 +32,7 @@ Todo lo demás funciona igual que S1Vave.
 - Si un patrón tiene cadena de variaciones, la toca completa antes de pasar al siguiente patrón de la cadena.
 - Presionar **una sola** tecla de variación o de patrón apaga esa cadena y funciona como siempre.
 - Con STOP, la cadena de patrones se queda donde iba; con PLAY sigue.
+- El **MUTE** de A y B se queda al cambiar de patrón mientras suena (a mano o por la cadena): si B está en mute en A1, sigue en mute en A2.
 - Mientras mantienes SAVE, la línea de abajo muestra la cadena que vas armando (`VAR CHAIN 2 2 3 4`, `CHAIN A1 A1 A2`).
 
 - Tocando (PLAY), el patrón y la variación cambian **al terminar la vuelta del track A**, para no romper el ritmo. Arriba se ve `A1>B3` (patrón en cola) o `V2>3` (variación en cola) y la tecla parpadea.

@@ -1,0 +1,17 @@
+# S1Vave-Banks: B muted in A1 (GLO held + white 2), a pattern chain A1 A2 (SAVE held + white 1, 2), PLAY:
+# A2 comes in with B still muted
+3000 btn 11
+3200 btndown 7
+3250 keys 0x4
+3300 keys 0
+3350 btnup 7
+3500 btndown 9
+3550 keys 0x1
+3600 keys 0
+3650 keys 0x4
+3700 keys 0
+3750 btnup 9
+4000 btn 12
+4200 shot
+9000 shot
+9500 end

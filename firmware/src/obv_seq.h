@@ -313,8 +313,11 @@ static void seq_tick(void)
                         uint32_t vn = seq_vchain_n(), cyc = !first && (!vn || vchain_pos + 1u >= vn);
                         if (cyc) ui_cycles++;           /* (a loop, or the whole variation chain: the pattern chain moves) */
                         if (ctl_pat_swap && (!ctl_pat_cycle || cyc || first)) {   /* the next pattern */
+                            uint8_t m0 = pat.trk[0].mute, m1 = pat.trk[1].mute;
                             if (ctl_pat_keep) pat_old = pat;
                             pat = pat_q;
+                            pat.trk[0].mute = m0;       /* S1Vave-Banks: the mutes stay as they are (a live control) */
+                            pat.trk[1].mute = m1;
                             if (ctl_bq_swap) { live_b = live_bq; ctl_bq_swap = 0; }   /* B's sound comes along */
                             ctl_pat_swap = 0;
                             ctl_pat_cycle = 0;
